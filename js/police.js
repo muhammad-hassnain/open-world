@@ -1,8 +1,9 @@
 // Police: patrol cars in traffic notice crimes they can see (speeding, red lights, crashing into
 // cars, driving on sidewalks or parks), which starts a chase. The longer it lasts the higher the
 // heat: more units, then police SUVs, then interceptors and roadblocks. You're busted if they
-// keep you stopped for a few seconds; you escape by staying out of sight until the cooldown
-// fills. Chasing units follow the streets (A* over the road graph) and drive straight at you once
+// keep you stopped for a few seconds. Each unit sees within a circle (shown on the minimap);
+// outside every circle (or out of their line of sight) the cooldown runs, and each time it fills
+// you lose a star, until you escape. Chasing units follow the streets (A* over the road graph) and drive straight at you once
 // they see you. Everything here is local to this player.
 import { Vehicle, carsLoaded } from './vehicles.js';
 import { nodeKey, signalState } from './world.js';
@@ -14,7 +15,8 @@ const CHASE_SIGHT = 140;                // m: units in a chase keep seeing you w
 const HEAT_AT = [0, 0, 60, 150, 270, 420];   // seconds of chase for heat 1..5
 const UNITS = [0, 2, 3, 4, 5, 6];
 const BUST_TIME = 3.5, BUST_R = 9;
-const cooldownFor = (heat) => 10 + heat * 3;
+const cooldownFor = (heat) => 8 + heat * 2;  // seconds out of sight to drop one star
+const SEEN_CLOSE = 35;                  // m: this close, they hear and see you around corners
 const UNIT_TYPES = [null, ['police'], ['police'], ['police-suv', 'police'], ['interceptor', 'police-suv'], ['interceptor']];
 
 export class Police {
@@ -49,7 +51,7 @@ export class Police {
     if (crime && this._witnessed(player)) this._report(crime, player);
 
     if (this.wanted) {
-      this.chase += dt;
+      if (this.cool === 0) this.chase += dt;  // heat only builds while they're on you
       const heat = HEAT_AT.reduce((h, s, i) => (i > 0 && this.chase >= s ? i : h), 1);
       if (heat > this.heat) { this.heat = heat; this._flash(`Heat ${heat}${heat >= 4 ? ': interceptors and roadblocks' : heat === 3 ? ': police SUVs' : ''}`); }
       this._keepUnits(player);
@@ -145,6 +147,13 @@ export class Police {
   _keepUnits(player) {
     const want = UNITS[this.heat];
     const chasing = this.units.filter((u) => u.mode === 'chase');
+    // Fewer stars: the farthest units give up.
+    if (chasing.length > want) {
+      const p = player.pos;
+      chasing.sort((a, b) => Math.hypot(b.v.x - p.x, b.v.z - p.z) - Math.hypot(a.v.x - p.x, a.v.z - p.z));
+      for (const u of chasing.slice(0, chasing.length - want)) u.mode = 'leave';
+      return;
+    }
     if (chasing.length >= want) return;
     // Out of sight, reinforcements come to where you were last seen, not to you.
     const at = this.cool > 0 && this.seen ? this.seen : player.pos;
@@ -193,13 +202,17 @@ export class Police {
     if (this.losT > 0) return;
     this.losT = 0.2;
     const p = player.pos;
-    const sees = this.units.some((u) => u.mode !== 'leave' && this._los(u.v.x, u.v.z, p.x, p.z, CHASE_SIGHT));
-    const close = this.units.some((u) => u.mode === 'chase' && Math.hypot(u.v.x - p.x, u.v.z - p.z) < 70);
-    if (sees) { this.seen = { x: p.x, z: p.z }; this.cool = 0; }
-    else if (!close) {  // cooldown only counts with no police nearby
-      this.cool += 0.2;
-      if (this.cool >= cooldownFor(this.heat)) this._end('ESCAPED');
-    }
+    const sees = this.units.some((u) => u.mode !== 'leave'
+      && (Math.hypot(u.v.x - p.x, u.v.z - p.z) < SEEN_CLOSE || this._los(u.v.x, u.v.z, p.x, p.z, CHASE_SIGHT)));
+    if (sees) { this.seen = { x: p.x, z: p.z }; this.cool = 0; return; }
+    // Out of every unit's sight: the cooldown fills, and each time it does you lose a star.
+    this.cool += 0.2;
+    if (this.cool < cooldownFor(this.heat)) return;
+    if (this.heat <= 1) { this._end('ESCAPED'); return; }
+    this.heat--;
+    this.chase = HEAT_AT[this.heat];
+    this.cool = 0.01;  // keep cooling toward the next star
+    this._flash(`Heat ${this.heat}: they're losing you`);
   }
 
   _busted(dt, player) {
@@ -332,6 +345,14 @@ export class Police {
       q = u.path[i];
     }
     return { x: q[0], z: q[1] };
+  }
+
+  // Police for the minimap: chase units and patrol cars with the radius they see within.
+  markers() {
+    const out = [];
+    for (const u of this.units) if (u.mode !== 'leave') out.push({ x: u.v.x, z: u.v.z, r: CHASE_SIGHT, chase: true });
+    if (!this.wanted) for (const c of this.traffic.cars) if (c.type === 'police') out.push({ x: c.x, z: c.z, r: SIGHT, chase: false });
+    return out;
   }
 
   // ---------- sound and HUD ----------

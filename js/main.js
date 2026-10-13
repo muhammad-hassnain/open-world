@@ -818,7 +818,12 @@ function loop(now) {
       $('card').classList.toggle('show', !!near);
     }
     miniT -= dt;
-    if (miniT <= 0) { miniT = 0.05; minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions(), nav.line); }
+    if (miniT <= 0) { miniT = 0.05; 
+      // Zoom out when driving fast, and further in a chase to show the police's sight.
+      const fast = player.vehicle ? Math.abs(player.vehicle.speed) : 0;
+      const radius = police.wanted ? 280 : fast > 14 ? 90 + (Math.min(fast, 40) - 14) * 4 : 90;
+      minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions(), nav.line, police.markers(), radius);
+    }
     hashT -= dt;
     if (hashT <= 0 && !TEST) {
       hashT = 2;

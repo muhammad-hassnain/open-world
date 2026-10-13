@@ -5,13 +5,14 @@ const AREA_COLORS = {
   sand: '#eedfae', farm: '#e0d197', water: '#86c8e8', parking: '#c9cbcf', plaza: '#e7e1d4',
 };
 const S = 1.5; // pixels per meter in the per-chunk canvases
-const VIEW_RADIUS = 90; // meters shown from center to edge
+const VIEW_RADIUS = 90; // meters shown from center to edge, on foot (it zooms out when fast or chased)
 
 // Rotating minimap drawn from one small pre-rendered canvas per loaded chunk.
 export class MiniMap {
   constructor(canvas) {
     this.canvas = canvas;
     this.chunks = new Map();
+    this.radius = VIEW_RADIUS;
   }
 
   addChunk(ci) {
@@ -59,8 +60,11 @@ export class MiniMap {
   clear() { this.chunks.clear(); }
 
   // players: other players nearby, [{ x, z }].
-  // route: the navigation route, [[x, z]], drawn under the places.
-  draw(px, pz, camYaw, yaw, places, players = [], route = null) {
+  // route: the navigation route, [[x, z]], drawn under the places. police: [{ x, z, r, chase }]
+  // with the radius each unit sees within. radius: meters to show (eased toward).
+  draw(px, pz, camYaw, yaw, places, players = [], route = null, police = [], radius = VIEW_RADIUS) {
+    this.radius += (radius - this.radius) * 0.08;
+    const VIEW_RADIUS = this.radius;
     const cv = this.canvas, ctx = cv.getContext('2d');
     const W = cv.width, R = W / 2;
     const k = R / VIEW_RADIUS; // screen px per meter
@@ -86,11 +90,30 @@ export class MiniMap {
       }
       ctx.stroke();
     }
-    for (const it of places) {
+    for (const it of VIEW_RADIUS > 150 ? [] : places) {  // zoomed out (chases, speed): roads and police only
       const dx = it.x - px, dz = it.z - pz;
       if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
       ctx.fillStyle = (CATS[it.cat] || CATS.service).color;
       ctx.beginPath(); ctx.arc(dx * k, dz * k, 2.6 * (W / 170), 0, Math.PI * 2); ctx.fill();
+    }
+    // Police sight circles, then the cars: chase units flash red and blue.
+    const blink = Math.floor(performance.now() / 250) % 2;
+    for (const o of police) {
+      const dx = o.x - px, dz = o.z - pz;
+      if (Math.abs(dx) > reach + o.r || Math.abs(dz) > reach + o.r) continue;
+      ctx.beginPath(); ctx.arc(dx * k, dz * k, o.r * k, 0, Math.PI * 2);
+      ctx.fillStyle = o.chase ? (blink ? 'rgba(230,40,40,0.16)' : 'rgba(40,90,230,0.16)') : 'rgba(40,90,230,0.10)';
+      ctx.fill();
+      ctx.strokeStyle = o.chase ? (blink ? 'rgba(220,30,30,0.7)' : 'rgba(30,80,220,0.7)') : 'rgba(30,80,220,0.35)';
+      ctx.lineWidth = 1.5 * (W / 170); ctx.stroke();
+    }
+    for (const o of police) {
+      const dx = o.x - px, dz = o.z - pz;
+      if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
+      ctx.fillStyle = o.chase ? (blink ? '#e02828' : '#2850e0') : '#2850e0';
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * (W / 170);
+      const sz = 4 * (W / 170);
+      ctx.fillRect(dx * k - sz, dz * k - sz, sz * 2, sz * 2); ctx.strokeRect(dx * k - sz, dz * k - sz, sz * 2, sz * 2);
     }
     ctx.fillStyle = '#2f7fc1'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     for (const o of players) {
