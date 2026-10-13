@@ -74,12 +74,15 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/labels.js` | Per-chunk place items, sign placement, street-sign corners, floating tags, lazy 3D signs |
 | `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
-| `js/character.js`, `js/player.js` | Character model/animation; movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
+| `js/character.js` | `Character(look)`: 3D person from `LOOKS` (glTF in `assets/characters/`) with idle/walk/run blended by speed; a procedural figure stands in until it loads; `setLook()` |
+| `js/profile.js` | Player name and look in localStorage (`loadProfile`, `saveProfile`, `cleanName`) |
+| `js/player.js` | Movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
 | `js/touch.js` | `TouchControls`: joystick fixed in a bottom corner (held all the way locks a sprint that continues after release until the stick is touched again), look anywhere else, pinch zoom, Jump in the other corner; `setSide('left' \| 'right')` (saved in localStorage); adds `body.touch` / `body.stick-right` |
 | `js/util.js` | Polygon helpers, `resample`, `offsetPolyline`, `SpatialHash`, `GeoBuilder` (with world-space UVs), `MultiBuilder`, `Budget` |
 | `tools/build_detail.py` | Overpass → `data/detail/<z>/<x>/<y>.json` for tiles in `DETAIL_TILES` |
 | `tools/fetch_textures.py` | Downloads the CC0 textures into `assets/textures/` and writes `CREDITS.md` |
 | `tools/screenshot.py` | Headless screenshots (Playwright) |
+| `tools/pack_character.py` | Character `.gltf` → compact `.glb` keeping only the animations the game uses |
 
 More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](docs/DATA.md).
 
@@ -121,7 +124,8 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
   texture becomes any paint color). Texture coordinates are world-anchored (`uvWall`,
   `uvAlong`, `uvPlanar` on `GeoBuilder`) so textures line up across walls and chunks; set the
   right one before adding faces. Rendering uses ACES tone mapping and an environment map baked
-  from the sky. Trees, cars and the character are still simple shapes.
+  from the sky. Trees and cars are still simple shapes; people are low-poly CC0 models
+  (Quaternius) loaded with `GLTFLoader`, cloned with `SkeletonUtils` per person.
 - **Detail data:** if you change the Overpass query or processors in `tools/build_detail.py`,
   bump `PROCESS_VERSION` and rebuild (`python3 tools/build_detail.py --force`).
 - **Credits must stay visible:** `#attrib` (street view) and MapLibre's attribution (globe)

@@ -5,6 +5,7 @@ import { makeMaterials } from './materials.js';
 import { GROUND_COLOR } from './streets.js';
 import { ChunkManager } from './chunks.js';
 import { Character } from './character.js';
+import { loadProfile, saveProfile, NAME_MAX } from './profile.js';
 import { Player, RUN, SPRINT } from './player.js';
 import { Labels, CATS, escapeHtml } from './labels.js';
 import { MiniMap } from './minimap.js';
@@ -100,7 +101,8 @@ window.addEventListener('resize', () => {
 
 const materials = makeMaterials(renderer);
 const minimap = new MiniMap($('minimap'));
-const character = new Character();
+const profile = loadProfile();
+const character = new Character(profile.look);
 character.root.visible = false;
 scene.add(character.root);
 
@@ -202,7 +204,8 @@ async function enterStreet(lat, lon, bearing = 0) {
   character.root.visible = true;
   placeName(lat, lon).then((n) => { if (token === session) world.placeName = n; }).catch(() => {});
   setMode('street');
-  if (TEST || touch.enabled) playing = true; else setOverlay(true);
+  if (!profile.saved && !TEST) openProfile();
+  else startOrPause();
   window.game.ready = true;
 }
 
@@ -317,6 +320,7 @@ const actions = {};
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   if (aboutOpen()) { if (e.code === 'Escape') closeAbout(); return; }
+  if (profileOpen()) { if (e.code === 'Escape' || e.code === 'Enter') closeProfile(); return; }
   if (mode === 'globe') {
     if (e.code === 'Escape' && player) backToStreet();
     if ((e.code === 'KeyM' || e.code === 'KeyG') && player && !e.repeat) backToStreet();
@@ -427,6 +431,41 @@ function openAbout() {
   $('about').classList.remove('hidden');
 }
 function closeAbout() { $('about').classList.add('hidden'); }
+
+// ---------- name and character ----------
+const profileOpen = () => !$('profile').classList.contains('hidden');
+function setLookButtons() {
+  for (const b of document.querySelectorAll('#profile-look button')) b.classList.toggle('on', b.dataset.look === profile.look);
+}
+function openProfile() {
+  if (locked) document.exitPointerLock();
+  keys.clear();
+  touch.reset();
+  playing = false;
+  setOverlay(false);
+  $('profile-name').value = profile.name;
+  setLookButtons();
+  $('profile').classList.remove('hidden');
+  if (!touch.enabled) $('profile-name').focus();
+}
+function closeProfile() {
+  profile.name = $('profile-name').value;
+  saveProfile(profile);
+  $('profile').classList.add('hidden');
+  $('profile-name').blur();
+  if (mode === 'street') startOrPause();
+}
+// Into the game: straight away on touch screens and in tests, else via the click-to-play panel.
+function startOrPause() {
+  if (TEST || touch.enabled) playing = true; else setOverlay(true);
+}
+$('profile-name').maxLength = NAME_MAX;
+$('profile-name').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); closeProfile(); } });
+for (const b of document.querySelectorAll('#profile-look button')) {
+  b.addEventListener('click', () => { profile.look = b.dataset.look; character.setLook(profile.look); setLookButtons(); });
+}
+$('profile-done').addEventListener('click', closeProfile);
+$('about-profile').addEventListener('click', () => { closeAbout(); openProfile(); });
 $('about-btn').addEventListener('click', openAbout);
 $('globe-about').addEventListener('click', openAbout);
 $('intro-about').addEventListener('click', openAbout);
@@ -544,6 +583,8 @@ window.game = {
   openMap(open) { if (open) openGlobe('map'); else backToStreet(); },
   openGlobe, enterStreet,
   get spawn() { return spawn; },
+  get profile() { return profile; },
+  character,
   get globe() { return globe; },
   ready: false,
 };

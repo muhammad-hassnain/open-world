@@ -166,6 +166,16 @@ normalizing case and punctuation. Its main image and up to seven more from its C
 (most shops and cafés) show no photo. Results are cached per place for the session. The card
 shows the first photo and its credit; `P` (or tapping the card) opens a full-screen viewer.
 
+## Characters (`character.js`, `profile.js`)
+
+The first time someone walks in, a panel asks for a name and a look (man or woman in a suit);
+both are kept in localStorage and can be changed under About. Each look is a skinned glTF from
+Quaternius' CC0 packs (`assets/characters/`), packed by `tools/pack_character.py` to keep only
+the Idle, Walk and Run (and Wave) clips. `Character` clones the model, blends the three clips by
+the speed actually moved, plays them at the rate that keeps the feet from sliding, holds a
+stride in the air and leans forward when sprinting. Until a model has loaded, a small
+procedural figure stands in, so walking in never waits for it.
+
 ## Player, camera and HUD
 
 - Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, sprint 9 m/s, jump), collision via

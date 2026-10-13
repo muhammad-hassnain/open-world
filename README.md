@@ -20,7 +20,8 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - **The whole world.** A 3D globe with place search; zoom in to any street and press
   **Walk here**. Press `G` to fly back out. The world streams in around you as you walk.
   If you share your location, you start on the street where you are.
-- **Third-person character** with walk, run, sprint and jump animations, an over-the-shoulder camera
+- **Third-person character**: pick a name and a man or woman in a suit, with walk, run, sprint
+  and jump animations, an over-the-shoulder camera
   that avoids walls, and collision with buildings, trees, lamps and parked cars.
 - **Real terrain**: streets, buildings and parks follow the ground, so San Francisco's hills
   climb and Montmartre rises to Sacré-Cœur. Elevation comes from open terrain tiles covering
@@ -122,15 +123,18 @@ js/props.js             Trees, lamps, benches, bike racks, hydrants, parked cars
 js/labels.js            Place labels: floating tags, 3D signs, street signs, info-card lookup
 js/photos.js            Photos of places from Wikimedia Commons (matched through Wikidata)
 js/minimap.js           Rotating minimap from per-chunk canvases
-js/character.js         Procedural stylized character and its animation
+js/character.js         The player's character (3D models with animations) and its fallback figure
+js/profile.js           The player's name and character, kept on the device
 js/player.js            Movement, collision response, third-person camera
 js/touch.js             Touch controls: fixed joystick with sprint lock, look, pinch zoom, Jump
 js/util.js              Geometry helpers, spatial hash, mesh builder, time slicing
 data/detail/            Pre-built detailed tiles (downtown Davis)
 assets/textures/        CC0 material textures (see CREDITS.md there)
+assets/characters/      CC0 character models (see CREDITS.md there)
 serve.py                Static file server (Python standard library only)
 tools/build_detail.py   Build detailed tiles from OpenStreetMap (Overpass API)
 tools/fetch_textures.py Download and prepare the material textures
+tools/pack_character.py Pack a character .gltf into a compact .glb with the animations the game uses
 tools/screenshot.py     Headless screenshots for checking visual changes
 docs/                   Architecture, data formats, roadmap, images
 ```
@@ -162,7 +166,8 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
   [OpenMapTiles](https://openmaptiles.org) schema. Search by [Nominatim](https://nominatim.org).
   The in-game credit lines must stay visible.
 - Material textures from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com),
-  CC0 ([list](assets/textures/CREDITS.md)). Roof colors from USGS/USDA orthoimagery
+  CC0 ([list](assets/textures/CREDITS.md)). Characters by [Quaternius](https://quaternius.com),
+  CC0 ([list](assets/characters/CREDITS.md)). Roof colors from USGS/USDA orthoimagery
   ([The National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map)), public domain.
 - Elevation from [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS (Mapzen;
   USGS 3DEP, SRTM, GMTED2010, ETOPO1, EU-DEM and national datasets); the full required

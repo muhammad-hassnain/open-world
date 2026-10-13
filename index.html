@@ -123,6 +123,23 @@
   .gh { width: 14px; height: 14px; flex: none; }
   #about .btn .gh { width: 18px; height: 18px; }
 
+  /* Name and character */
+  #profile { position: absolute; inset: 0; z-index: 38; display: flex; align-items: center; padding: 16px 6vw;
+    background: linear-gradient(90deg, rgba(14, 18, 24, 0.75), rgba(14, 18, 24, 0.1) 60%); }
+  #profile .panel { width: 340px; }
+  #profile label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+  #profile input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: var(--text); font: 15px system-ui; }
+  #profile-look { display: flex; gap: 8px; margin-bottom: 18px; }
+  #profile-look button { flex: 1; border: 0; border-radius: 10px; padding: 11px; background: rgba(255,255,255,0.1);
+    color: var(--text); font: 600 14px system-ui; cursor: pointer; }
+  #profile-look button.on { background: #fff; color: #22272e; }
+  @media (max-width: 720px) {
+    #profile { align-items: flex-start; justify-content: center; padding-top: 70px;
+      background: linear-gradient(180deg, rgba(14, 18, 24, 0.8), rgba(14, 18, 24, 0.1) 70%); }
+  }
+  #about-profile { background: rgba(255,255,255,0.12); color: var(--text); margin-bottom: 10px; }
+
   /* About */
   #about { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
     background: rgba(14, 18, 24, 0.6); backdrop-filter: blur(3px); padding: 16px; }
@@ -241,6 +258,16 @@
   <div id="ph-credit"></div>
 </div>
 
+<div id="profile" class="hidden">
+  <div class="panel">
+    <h1>Who are you?</h1>
+    <p>Pick a name and a character. You can change them later under About.</p>
+    <label>Name<input id="profile-name" type="text" placeholder="Your name" autocomplete="nickname" spellcheck="false"></label>
+    <div id="profile-look"><button data-look="man">Man</button><button data-look="woman">Woman</button></div>
+    <button id="profile-done" class="btn">Start walking</button>
+  </div>
+</div>
+
 <div id="about" class="hidden">
   <div class="panel">
     <h1>Open World</h1>
@@ -255,10 +282,12 @@
       · Roof colors <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map" target="_blank" rel="noopener">USGS</a>
       · Photos <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia Commons</a> (credited with each photo)
       · Search <a href="https://nominatim.org" target="_blank" rel="noopener">Nominatim</a>
+      · Characters <a href="https://quaternius.com" target="_blank" rel="noopener">Quaternius</a>
       · Textures <a href="https://polyhaven.com" target="_blank" rel="noopener">Poly Haven</a>,
       <a href="https://ambientcg.com" target="_blank" rel="noopener">ambientCG</a>
       · Code under the MIT License.
     </div>
+    <button id="about-profile" class="btn">Change name and character</button>
     <div id="stick-side"><span>Joystick</span><button data-side="left">Left</button><button data-side="right">Right</button></div>
     <div class="row">
       <a class="btn" href="https://github.com/muhammad-hassnain/open-world" target="_blank" rel="noopener"><svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>View on GitHub</a>

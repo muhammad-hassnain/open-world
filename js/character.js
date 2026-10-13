@@ -1,8 +1,104 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { clamp, damp, lerp } from './util.js';
 
-// Stylized procedural person. Faces -Z at yaw 0; root sits at the feet.
+// The looks players can choose. Models from Quaternius' "Ultimate Modular Men" and "Ultimate
+// Modular Women" packs (CC0), packed by tools/pack_character.py. height: meters tall in game;
+// walk / run: ground speed (m/s, at the model's own 1.8 m size) at which that cycle's feet don't slide.
+export const LOOKS = {
+  man: { label: 'Man', file: 'assets/characters/man.glb', height: 1.78, walk: 1.6, run: 3.35 },
+  woman: { label: 'Woman', file: 'assets/characters/woman.glb', height: 1.68, walk: 1.3, run: 2.7 },
+};
+const MODEL_HEIGHT = 1.8;
+
+const loader = new GLTFLoader();
+const loaded = new Map();
+function loadLook(name) {
+  if (!loaded.has(name)) {
+    loaded.set(name, loader.loadAsync(LOOKS[name].file).then((gltf) => {
+      gltf.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        o.frustumCulled = false;  // skinned bounds don't follow the animation
+        o.material.envMapIntensity = 0.6;
+      });
+      return gltf;
+    }));
+  }
+  return loaded.get(name);
+}
+
+// A person in the world (the player, or later other players): the 3D model for a look, animated
+// from how fast it moves. A simple figure stands in until the model has loaded, or if it can't.
+// Faces -Z at yaw 0; root sits at the feet.
 export class Character {
+  constructor(look = 'man') {
+    this.root = new THREE.Group();
+    this.body = new THREE.Group();     // leans forward when sprinting
+    this.root.add(this.body);
+    this.fallback = new SimpleFigure();
+    this.root.add(this.fallback.root);
+    this.model = null;
+    this.mixer = null;
+    this.look = null;
+    this.w = { idle: 1, walk: 0, run: 0 };
+    this.lean = 0;
+    this.setLook(look);
+  }
+
+  setLook(look) {
+    if (!LOOKS[look]) look = 'man';
+    if (look === this.look) return this.ready;
+    this.look = look;
+    const token = (this._token = (this._token || 0) + 1);
+    this.ready = loadLook(look)
+      .then((gltf) => { if (token === this._token) this._use(gltf, LOOKS[look]); })
+      .catch((e) => console.warn(`Character ${look} didn't load: ${e.message}`));
+    return this.ready;
+  }
+
+  _use(gltf, spec) {
+    if (this.model) { this.mixer.stopAllAction(); this.body.remove(this.model); }
+    const s = spec.height / MODEL_HEIGHT;
+    const model = SkeletonUtils.clone(gltf.scene);
+    model.scale.setScalar(s);
+    model.rotation.y = Math.PI;  // glTF models face +Z
+    this.body.add(model);
+    this.fallback.root.visible = false;
+    this.model = model;
+    this.mixer = new THREE.AnimationMixer(model);
+    this.actions = {};
+    for (const [key, name] of [['idle', 'Idle'], ['walk', 'Walk'], ['run', 'Run']]) {
+      const action = this.mixer.clipAction(gltf.animations.find((a) => a.name === name));
+      action.play();
+      action.setEffectiveWeight(this.w[key]);
+      this.actions[key] = action;
+    }
+    this.speeds = { walk: spec.walk * s, run: spec.run * s };
+  }
+
+  // speed: horizontal m/s actually moved; airborne: not on ground.
+  update(dt, speed, airborne) {
+    if (!this.mixer) { this.fallback.update(dt, speed, airborne); return; }
+    // Blend idle -> walk -> run by speed; in the air, hold a stride.
+    const walkT = clamp((speed - 0.15) / 0.5, 0, 1), runT = clamp((speed - 2.6) / 1.2, 0, 1);
+    const target = airborne ? { idle: 0.2, walk: 0, run: 0.8 } : { idle: 1 - walkT, walk: walkT * (1 - runT), run: walkT * runT };
+    for (const k in target) {
+      this.w[k] = damp(this.w[k], target[k], 10, dt);
+      this.actions[k].setEffectiveWeight(this.w[k]);
+    }
+    const a = this.actions;
+    a.walk.timeScale = clamp(speed / this.speeds.walk, 0.6, 2);
+    a.run.timeScale = airborne ? 0.1 : clamp(speed / this.speeds.run, 0.7, 2.3);
+    this.lean = damp(this.lean, airborne ? 0 : clamp((speed - 6) / 3, 0, 1), 6, dt);
+    this.body.rotation.x = -0.12 * this.lean;
+    this.mixer.update(dt);
+  }
+}
+
+// Stylized procedural person, used until (or if) the 3D model loads. Faces -Z at yaw 0; root sits at the feet.
+class SimpleFigure {
   constructor({ shirt = '#ff7a45', pants = '#34495e', skin = '#e8b48f', hair = '#2d1e16', shoes = '#f4f4f2', pack = '#1f4e8c' } = {}) {
     const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75, envMapIntensity: 0.6 });
     const M = { shirt: mat(shirt), pants: mat(pants), skin: mat(skin), hair: mat(hair), shoes: mat(shoes), pack: mat(pack), eye: mat('#1d1d1f') };
