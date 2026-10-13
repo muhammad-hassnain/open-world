@@ -451,8 +451,9 @@ export class Atmosphere {
     u.stars.value = this.night * (1 - W.clouds);
     this.scene.background.copy(horizon);
     this.scene.fog.color.copy(horizon);
-    const fogFar = lerp(620, 260, W.rain * 0.6 + W.snow * 0.5) * lerp(1, 0.15, W.fog);
-    this.scene.fog.near = Math.min(120, fogFar * 0.25);
+    const clearAir = (1 - W.fog) * (1 - W.rain * 0.7) * (1 - W.snow * 0.6);
+    const fogFar = lerp(620, 260, W.rain * 0.6 + W.snow * 0.5) * lerp(1, 0.15, W.fog) * lerp(1, 26, (this.viewBoost || 0) * clearAir);
+    this.scene.fog.near = Math.min(120 + (this.viewBoost || 0) * clearAir * 2500, fogFar * 0.25);
     this.scene.fog.far = fogFar;
 
     // Sun (or moon at night): direction, color, strength.

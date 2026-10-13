@@ -17,6 +17,7 @@ import { Traffic, updateLights } from './traffic.js';
 import { Police, Siren } from './police.js';
 import { Atmosphere, TIME_MODES, WEATHER_MODES } from './atmosphere.js';
 import { milesHere, speedLimit, MPH_PER_MS, KMH_PER_MS } from './limits.js';
+import { FarView } from './farview.js';
 import { takeParkedCar } from './props.js';
 import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
@@ -46,7 +47,7 @@ const touch = new TouchControls(renderer.domElement, {
 if (MOBILE) touch.enable();
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 2000);
+const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 30000);  // far view: ~20 km
 
 // Ground beyond the loaded chunks, so the horizon never shows a void.
 const farGround = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: GROUND_COLOR, roughness: 1 }));
@@ -98,7 +99,7 @@ scene.add(character.root);
 // ---------- session state ----------
 let mode = 'boot';             // 'globe' | 'loading' | 'street'
 let session = 0;
-let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null, police = null;
+let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null, police = null, far = null;
 let globe = null;
 
 function setMode(m) {
@@ -203,6 +204,8 @@ async function enterStreet(lat, lon, bearing = 0) {
     return;
   }
   if (token !== session) return;
+  if (far) far.dispose();
+  far = new FarView({ scene, frame, base: terrain.base });
   spawn = findSpawn(world, bearing);
   player = new Player(world, character, camera);
   player.spawn(spawn.x, spawn.z, spawn.yaw);
@@ -756,7 +759,10 @@ function loop(now) {
         }
       }
       farGround.position.y = low - 1.5;
+      // High above the surroundings (a hill, a tower): the haze lifts so you can see far.
+      if (far && far.ready) atmo.viewBoost = Math.min(1, Math.max(0, (camera.position.y - far.lowAround(p.x, p.z) - 40) / 260));
     }
+    if (far) { far.update(p); farGround.visible = !far.ready; }
     farGround.position.x = p.x;
     farGround.position.z = p.z;
     labels.update(dt, p.x, p.z);
@@ -820,6 +826,7 @@ window.game = {
   get traffic() { return traffic; },
   get police() { return police; },
   atmo,
+  get far() { return far; },
   scene,
   get profile() { return profile; },
   mp,

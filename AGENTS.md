@@ -63,6 +63,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/aerial.js` | USGS aerial image per z14 tile (US only) → median roof color `rc` per building |
 | `js/geo.js` | Web Mercator math, `Frame` (local meters around the walk-in point), tile rectangles; `DATA_ZOOM` 14, `CHUNK_ZOOM` 16 |
 | `js/terrain.js` | `Terrain`: loads Terrarium elevation PNGs (z15) per z14 tile, bilinear `at(x, z)` relative to the walk-in point, `water(x, z)` clamped to sea level |
+| `js/farview.js` | `FarView`: zoom-12 `Terrain` ring mesh (420 m to 20 km, colored by height/slope) plus a sea disc, rebuilt after moving 2.5 km; sunk and depth-pushed behind the chunks; `lowAround()` drives `atmo.viewBoost` (haze lifts when high) |
 | `js/tiledata.js` | Fetch a z14 tile: detail JSON if listed in `data/detail/index.json`, else OpenFreeMap; OpenMapTiles → common format; `toLocal` |
 | `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
 | `js/chunks.js` | `ChunkManager`: which chunks to load/build/drop, tile prep (T-junction repair, road-width fitting, footway classification), clipping, builds |

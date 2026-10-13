@@ -7,13 +7,18 @@ export const TERRAIN_ZOOM = 15;
 const SIZE = 256;
 
 export class Terrain {
-  constructor(frame) {
+  // zoom: tile zoom (15 for the streets; far.js uses a coarser one for distant land).
+  constructor(frame, { zoom = TERRAIN_ZOOM } = {}) {
     this.frame = frame;
-    this.tiles = new Map();   // x * 65536 + y (z15) -> Float32Array(256*256) of raw meters, or null if missing
+    this.zoom = zoom;
+    this.tiles = new Map();   // x * 65536 + y -> Float32Array(256*256) of raw meters, or null if missing
     this.pending = new Map();
     this.base = 0;
-    this.n = 2 ** TERRAIN_ZOOM;
+    this.n = 2 ** zoom;
   }
+
+  // Load one tile at this terrain's zoom.
+  ensureTile(x, y) { return this._load(x, y); }
 
   // Load the four z15 tiles under a z14 data tile.
   ensure(tx14, ty14) {
@@ -26,7 +31,7 @@ export class Terrain {
     if (!this.pending.has(key)) {
       this.pending.set(key, (async () => {
         try {
-          const res = await fetch(`${TILE_URL}/${TERRAIN_ZOOM}/${x}/${y}.png`);
+          const res = await fetch(`${TILE_URL}/${this.zoom}/${x}/${y}.png`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const buf = await res.arrayBuffer();
           const { data, bpp } = await decodePNG(buf).catch(() => decodeWithCanvas(buf));

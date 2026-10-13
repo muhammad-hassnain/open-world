@@ -84,6 +84,13 @@ How builders use it:
 
 Bridges and elevated highways still follow the ground (see the roadmap); tunnels are not drawn.
 
+Beyond the streamed chunks, `farview.js` draws the landscape out to about 20 km: a ring mesh
+around the player (dense near, coarse far) sampled from zoom-12 terrain tiles, colored by height
+and slope (sand, green, rock, snow), plus a sea disc at sea level where the land dips below it.
+It sinks a little near the player and is drawn slightly behind in depth, so the detailed ground
+always wins. When the camera is well above the lowest ground around (a hill, a tower), the fog
+is pushed out to as far as 16 km, so the view opens up; the camera's far plane is 30 km.
+
 ## Roof colors (`aerial.js`)
 
 For tiles inside the US, the USGS/USDA orthoimagery export for the tile's extent (1024 px,

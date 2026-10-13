@@ -25,7 +25,9 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
   that avoids walls, and collision with buildings, trees, lamps and parked cars.
 - **Real terrain**: streets, buildings and parks follow the ground, so San Francisco's hills
   climb and Montmartre rises to Sacré-Cœur. Elevation comes from open terrain tiles covering
-  the whole planet.
+  the whole planet. Beyond the streets, low-detail land and sea reach out about 20 km, and the
+  haze lifts when you're high up, so from a summit you see the landscape and the sunset over the
+  water.
 - **Streets from real data**: road widths fitted to the buildings around them, cracked asphalt,
   center lines, stop lines, crosswalks, concrete sidewalks with curbs, footpaths, bike paths,
   parks, water, and parking lots with painted stalls.
@@ -141,6 +143,7 @@ js/materials.js         Shared textured materials (CC0 textures in assets/textur
 js/aerial.js            Roof colors sampled from USGS aerial imagery (US only)
 js/geo.js               Web Mercator tiles and the local metric frame around the walk-in point
 js/terrain.js           Elevation from Terrain Tiles (Terrarium PNGs), sampled per point
+js/farview.js           Distant land and sea out to ~20 km, beyond the streamed streets
 js/tiledata.js          Load a tile (vector or detail) and convert it to the common format
 js/mvt.js               Minimal Mapbox Vector Tile decoder
 js/chunks.js            Streaming: tile prep, clipping into chunks, full/lite builds, unloading
