@@ -166,9 +166,10 @@ export class ChunkManager {
     ci.resetDynamic();
     await planBuildings(this.world, ci.buildings, { streets: full, rect: ci.rect, budget });
     if (!this._alive(ch)) return;
-    group.add(...await buildBuildings(ci.buildings, this.materials, { lite: !full, rect: ci.rect, budget }));
+    const buildingMeshes = await buildBuildings(ci.buildings, this.materials, { lite: !full, rect: ci.rect, budget });
+    if (buildingMeshes.length) group.add(...buildingMeshes);  // add() with nothing logs an error
     const streets = await buildStreets(this.world, ci, this.materials, { lite: !full, budget });
-    group.add(...streets.meshes);
+    if (streets.meshes.length) group.add(...streets.meshes);
     if (full) {
       await buildTrees(this.world, ci, streets.spots, group, budget);
       buildFurniture(this.world, ci, streets.spots, group);

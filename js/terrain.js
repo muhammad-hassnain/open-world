@@ -28,13 +28,11 @@ export class Terrain {
         try {
           const res = await fetch(`${TILE_URL}/${TERRAIN_ZOOM}/${x}/${y}.png`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const bmp = await createImageBitmap(await res.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
-          const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(SIZE, SIZE) : Object.assign(document.createElement('canvas'), { width: SIZE, height: SIZE });
-          const ctx = cv.getContext('2d', { willReadFrequently: true });
-          ctx.drawImage(bmp, 0, 0);
-          const px = ctx.getImageData(0, 0, SIZE, SIZE).data;
+          const buf = await res.arrayBuffer();
+          const { data, bpp } = await decodePNG(buf).catch(() => decodeWithCanvas(buf));
           const h = new Float32Array(SIZE * SIZE);
-          for (let i = 0; i < h.length; i++) h[i] = px[i * 4] * 256 + px[i * 4 + 1] + px[i * 4 + 2] / 256 - 32768;
+          for (let i = 0; i < h.length; i++) h[i] = data[i * bpp] * 256 + data[i * bpp + 1] + data[i * bpp + 2] / 256 - 32768;
+          despike(h);
           this.tiles.set(key, h);
         } catch (e) {
           console.warn(`[terrain] ${x}/${y} unavailable, treating as flat`, e);
@@ -81,4 +79,58 @@ export class Terrain {
   water(x, z) { return Math.max(this.raw(x, z), 0) - this.base; }
 
   get seaLevel() { return -this.base; }
+}
+
+// Elevation is packed into the color channels (red alone is worth 256 m per step), so the bytes
+// must come through exactly. Browsers may color-manage images drawn to a canvas (seen on
+// wide-gamut Mac screens), which turns single pixels into spikes hundreds of meters tall, so
+// PNGs are decoded here. Handles 8-bit RGB/RGBA, non-interlaced: what Terrain Tiles serves.
+async function decodePNG(buf) {
+  const d = new DataView(buf), idat = [];
+  let w = 0, h = 0, depth = 0, type = 0, interlace = 0;
+  for (let p = 8; p + 8 <= buf.byteLength;) {
+    const len = d.getUint32(p), t = d.getUint32(p + 4);
+    if (t === 0x49484452) { w = d.getUint32(p + 8); h = d.getUint32(p + 12); depth = d.getUint8(p + 16); type = d.getUint8(p + 17); interlace = d.getUint8(p + 20); }
+    else if (t === 0x49444154) idat.push(new Uint8Array(buf, p + 8, len));
+    else if (t === 0x49454e44) break;
+    p += 12 + len;
+  }
+  if (w !== SIZE || h !== SIZE || depth !== 8 || interlace || (type !== 2 && type !== 6)) throw new Error('unsupported PNG');
+  const raw = new Uint8Array(await new Response(new Blob(idat).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
+  const bpp = type === 6 ? 4 : 3, stride = w * bpp, out = new Uint8Array(h * stride);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], src = y * (stride + 1) + 1, row = y * stride;
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? out[row + i - bpp] : 0, b = y ? out[row - stride + i] : 0, c = i >= bpp && y ? out[row - stride + i - bpp] : 0;
+      let v = raw[src + i];
+      if (f === 1) v += a;
+      else if (f === 2) v += b;
+      else if (f === 3) v += (a + b) >> 1;
+      else if (f === 4) { const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c); v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+      out[row + i] = v & 255;
+    }
+  }
+  return { data: out, bpp };
+}
+
+async function decodeWithCanvas(buf) {
+  const bmp = await createImageBitmap(new Blob([buf]), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(SIZE, SIZE) : Object.assign(document.createElement('canvas'), { width: SIZE, height: SIZE });
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0);
+  return { data: ctx.getImageData(0, 0, SIZE, SIZE).data, bpp: 4 };
+}
+
+// Replace lone pixels far off from neighbors that agree with each other (bad data, not cliffs).
+function despike(h) {
+  const n = [0, 0, 0, 0];
+  for (let y = 1; y < SIZE - 1; y++) {
+    for (let x = 1; x < SIZE - 1; x++) {
+      const i = y * SIZE + x;
+      n[0] = h[i - 1]; n[1] = h[i + 1]; n[2] = h[i - SIZE]; n[3] = h[i + SIZE];
+      n.sort((a, b) => a - b);
+      const med = (n[1] + n[2]) / 2;
+      if (Math.abs(h[i] - med) > 150 && n[3] - n[0] < 100) h[i] = med;
+    }
+  }
 }
