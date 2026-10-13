@@ -20,8 +20,10 @@ ROOT = Path(__file__).resolve().parent
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8080"))
 PUBLIC_DIRS = ("js", "data", "assets")
+PUBLIC_FILES = ("index.html", "favicon.ico", "site.webmanifest")
 
 mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -32,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.unquote(self.path.split("?", 1)[0])
         rel = "index.html" if path == "/" else path.lstrip("/")
         target = (ROOT / rel).resolve()
-        allowed = rel == "index.html" or rel.split("/", 1)[0] in PUBLIC_DIRS
+        allowed = rel in PUBLIC_FILES or rel.split("/", 1)[0] in PUBLIC_DIRS
         if not allowed or ROOT not in target.parents or not target.is_file():
             self.send_error(404)
             return

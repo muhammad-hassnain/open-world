@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs>
+    <clipPath id="frame">
+      <rect width="1024" height="1024" rx="224" ry="224"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <!-- Sky -->
+    <rect width="1024" height="1024" fill="#D7EEF5"/>
+    <!-- Sun -->
+    <circle cx="750" cy="270" r="105" fill="#F5A623"/>
+    <!-- Back mountain (lightest, atmospheric distance) -->
+    <polygon points="-40,710 290,430 540,710" fill="#7CC79A"/>
+    <!-- Mid-right mountain -->
+    <polygon points="700,710 920,500 1080,710" fill="#4A9960"/>
+    <!-- Front mountain (darkest, closest) -->
+    <polygon points="320,710 580,310 870,710" fill="#1F4A33"/>
+    <!-- Ground -->
+    <rect y="700" width="1024" height="324" fill="#8FD98A"/>
+  </g>
+  <!-- Subtle rim for definition on light backgrounds -->
+  <rect x="2" y="2" width="1020" height="1020" rx="222" ry="222"
+        fill="none" stroke="#0E2A4A" stroke-opacity="0.12" stroke-width="4"/>
+</svg>

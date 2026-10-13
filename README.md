@@ -136,6 +136,7 @@ js/util.js              Geometry helpers, spatial hash, mesh builder, time slici
 data/detail/            Pre-built detailed tiles (downtown Davis)
 assets/textures/        CC0 material textures (see CREDITS.md there)
 assets/characters/      CC0 character models (see CREDITS.md there)
+assets/icons/           App icons (tab, home screen); favicon.ico and site.webmanifest sit at the root
 serve.py                Static file server (Python standard library only)
 relay/                  Multiplayer relay (Cloudflare Worker + Durable Objects), deployed separately
 tools/build_detail.py   Build detailed tiles from OpenStreetMap (Overpass API)
