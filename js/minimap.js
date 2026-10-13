@@ -79,8 +79,10 @@ export class MiniMap {
       if (rect.maxX < px - reach || rect.minX > px + reach || rect.maxZ < pz - reach || rect.minZ > pz + reach) continue;
       ctx.drawImage(canvas, (rect.minX - px) * k, (rect.minZ - pz) * k, (rect.maxX - rect.minX) * k, (rect.maxZ - rect.minZ) * k);
     }
+    const routeColor = route && route.pts ? route.color : '#3d8bfd';
+    if (route && route.pts) route = route.pts;
     if (route && route.length > 1) {
-      ctx.strokeStyle = '#3d8bfd'; ctx.lineWidth = 5 * (W / 170); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.strokeStyle = routeColor; ctx.lineWidth = 5 * (W / 170); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.beginPath();
       let pen = false;
       for (const [x, z] of route) {
@@ -100,6 +102,19 @@ export class MiniMap {
     const blink = Math.floor(performance.now() / 250) % 2;
     for (const o of police) {
       const dx = o.x - px, dz = o.z - pz;
+      if (o.cam || o.zone || o.race || o.rival) {
+        if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
+        const r = (o.rival ? 4 : 6) * (W / 170);
+        ctx.fillStyle = o.cam ? '#f2c22e' : o.zone ? '#2a7de8' : o.race ? '#ff8a2a' : '#c03ad8';
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * (W / 170);
+        ctx.beginPath(); ctx.arc(dx * k, dz * k, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        if (!o.rival) {
+          ctx.save(); ctx.translate(dx * k, dz * k); ctx.rotate(-camYaw);
+          ctx.fillStyle = o.cam ? '#222' : '#fff'; ctx.font = `bold ${Math.round(r * 1.2)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(o.cam ? 'S' : o.zone ? 'Z' : 'R', 0, 0.5); ctx.restore();
+        }
+        continue;
+      }
       if (o.gas) {  // gas station: repair and respray
         if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
         const r = 6 * (W / 170);
@@ -119,7 +134,7 @@ export class MiniMap {
     }
     for (const o of police) {
       const dx = o.x - px, dz = o.z - pz;
-      if (o.gas || Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
+      if (o.gas || o.cam || o.zone || o.race || o.rival || Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
       ctx.fillStyle = o.chase ? (blink ? '#e02828' : '#2850e0') : '#2850e0';
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * (W / 170);
       const sz = 4 * (W / 170);

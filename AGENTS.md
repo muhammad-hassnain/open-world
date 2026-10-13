@@ -70,6 +70,8 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/navigate.js` | `Navigator`: OSRM route (FOSSGIS server, OSRM demo as fallback) from the player to a map point ("Drive here"), progress along it, next maneuver / lanes / distance / ETA panel (`#nav`), reroute when off the route; `line` for the minimap, `onChange` for the map layer |
 | `js/roadsigns.js` | `RoadSigns`: guide signs (gantries on freeways, posts elsewhere) and route shields from `chunk.signs`, canvas panels built within 520 m of the player |
 | `js/arcade.js` | `Arcade`: Speed Points (near misses, oncoming, drifts, top speed, takedowns, escapes; combo ×5; saved in localStorage), nitrous refill, gas stations (fuel POIs: repair, refill, respray, lose 2 stars unseen), slow-motion crash cam (`timeScale`, `applyCamera`) |
+| `js/speedcams.js` | `SpeedCams`: speed cameras and speed zones (start/end gates, average speed) on major roads, placed per lat/lon grid cell so they're at the same place every visit; bests in localStorage |
+| `js/races.js` | `Races`: race starts (beacons) per lat/lon grid cell; sprint (~3.5 km) or 2-lap circuit routed by OSRM (`fetchRoute`), checkpoints, 3 AI rivals following the route polyline (bend speed, rubber band, unstick), countdown, position, results, best times |
 | `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
 | `js/bridges.js` | Deck heights for bridges and their ramps per tile (`elevateRoads`), `deckY(road, x, z)` |
 | `js/chunks.js` | `ChunkManager`: which chunks to load/build/drop, tile prep (T-junction repair, road-width fitting, footway classification), clipping, builds |
@@ -249,8 +251,10 @@ in detail data.
   turn direction comes from the geometry of the next segment. These tiles are only fetched for
   tiles with motorway/trunk/primary roads. US route shields get a cardinal direction from the
   route number's parity. Exit numbers aren't in the data (OSRM has them for the route).
-- The OSRM servers are free community services: one request per route and per reroute (at most
-  every 8 s); keep it that way.
+- The OSRM servers are free community services: one request per route, per reroute (at most
+  every 8 s) and per race start; keep it that way.
+- Events (speed cameras, zones, race starts) are decided per lat/lon grid cell with a hash of the
+  cell, not per chunk, so they don't move between visits and bests (keyed by cell) stay valid.
 - Nominatim allows about one request per second; search only runs on submit and reverse
   geocoding once per walk-in.
 - Pointer lock may be refused; the game then falls back to click-and-drag to look.

@@ -11,8 +11,9 @@ const OFF_ROUTE_M = 45, OFF_ROUTE_S = 3, REROUTE_EVERY_S = 8, ARRIVE_M = 30;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-async function fetchRoute(from, to) {
-  const path = `${from[1].toFixed(6)},${from[0].toFixed(6)};${to[1].toFixed(6)},${to[0].toFixed(6)}`;
+// Route through [lat, lon] points (two or more); the OSRM route object.
+export async function fetchRoute(...pts) {
+  const path = pts.map((p) => `${p[1].toFixed(6)},${p[0].toFixed(6)}`).join(';');
   let err = null;
   for (const base of ROUTERS) {
     try {

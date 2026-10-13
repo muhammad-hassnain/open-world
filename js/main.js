@@ -24,6 +24,8 @@ import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
 import { Navigator } from './navigate.js';
 import { RoadSigns } from './roadsigns.js';
 import { Arcade } from './arcade.js';
+import { SpeedCams } from './speedcams.js';
+import { Races } from './races.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -105,7 +107,7 @@ let session = 0;
 let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null, police = null, far = null;
 let globe = null;
 let roadSigns = null;
-let arcade = null;
+let arcade = null, speedCams = null, races = null;
 const nav = new Navigator($('nav'));
 nav.onChange = (line) => { if (globe) globe.setRoute(line); };
 
@@ -202,6 +204,11 @@ async function enterStreet(lat, lon, bearing = 0) {
   police.onTakedown = (u) => arcade.takedown(u);
   police.onEscape = (heat) => arcade.escaped(heat);
   police.onSpiked = () => arcade.spiked();
+  if (speedCams) speedCams.dispose();
+  if (races) races.dispose();
+  const award = (pts, label, nitro) => arcade.award(pts, label, nitro);
+  speedCams = new SpeedCams({ scene, world, pop: eventPop, award });
+  races = new Races({ scene, world, traffic, police, pop: eventPop, award, flash, hud: { box: $('race') } });
   mp.setWorld(frame, world);
   labels = new Labels(world, scene, camera, $('tags'));
   labels.onChange = setLabelButtons;
@@ -644,6 +651,20 @@ function setUnits(u) {
 for (const b of document.querySelectorAll('#units-mode button')) b.addEventListener('click', () => setUnits(b.dataset.v === 'auto' ? null : b.dataset.v));
 for (const b of document.querySelectorAll('#units-mode button')) b.classList.toggle('on', (b.dataset.v === 'auto' && !unitsPick) || b.dataset.v === unitsPick);
 
+// Big message for events: a title, an optional speed (m/s, shown in the player's units) and a line
+// under it (text, or { best } m/s).
+let popTimer = null;
+function eventPop(title, ms, sub) {
+  const miles = showMiles(), unit = miles ? 'mph' : 'km/h', k = miles ? MPH_PER_MS : KMH_PER_MS;
+  const big = ms != null ? `<b>${Math.round(ms * k)}</b><small>${unit}</small>` : '';
+  const line = sub && typeof sub === 'object' ? `best ${Math.round(sub.best * k)} ${unit}` : sub || '';
+  const el = $('event-pop');
+  el.innerHTML = `<div class="t">${escapeHtml(title)}</div>${big ? `<div class="v">${big}</div>` : ''}${line ? `<div class="s">${escapeHtml(line)}</div>` : ''}`;
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  clearTimeout(popTimer);
+  popTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
 // Bottom-of-screen hint: what F does here, or the speed and the road's limit while driving.
 function updateDriveHint() {
   const el = $('drive-hint');
@@ -803,6 +824,9 @@ function loop(now) {
     traffic.update(sdt, player);
     police.update(sdt, player);
     arcade.update(dt, player);
+    speedCams.update(sdt, player);
+    races.update(sdt, player);
+    document.body.classList.toggle('racing', races.active);
     if (player.vehicle) traffic.bump(player.vehicle.x, player.vehicle.z, 0);
     lightT -= dt;
     if (lightT <= 0) {
@@ -836,7 +860,8 @@ function loop(now) {
       // Zoom out when driving fast, and further in a chase to show the police's sight.
       const fast = player.vehicle ? Math.abs(player.vehicle.speed) : 0;
       const radius = police.wanted ? 280 : fast > 14 ? 90 + (Math.min(fast, 40) - 14) * 4 : 90;
-      minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions(), nav.line, [...police.markers(), ...arcade.markers()], radius);
+      minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions(), races.line ? { pts: races.line, color: '#ffb02a' } : nav.line,
+        [...police.markers(), ...arcade.markers(), ...speedCams.markers(), ...races.markers()], races.active ? Math.max(radius, 200) : radius);
     }
     hashT -= dt;
     if (hashT <= 0 && !TEST) {
@@ -862,6 +887,9 @@ window.game = {
   press(code, down) { if (down) keys.add(code); else keys.delete(code); },
   openMap(open) { if (open) openGlobe('map'); else backToStreet(); },
   openGlobe, enterStreet, nav,
+  get speedCams() { return speedCams; },
+  get races() { return races; },
+  get arcade() { return arcade; },
   get spawn() { return spawn; },
   vehicles,
   get traffic() { return traffic; },
