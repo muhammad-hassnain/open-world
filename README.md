@@ -42,7 +42,7 @@ Requirements: Python 3.9+ and a browser with WebGL 2. There is no build step and
 install.
 
 ```bash
-python3 server.py
+python3 serve.py
 ```
 
 Open <http://localhost:8080>. The globe flies to Davis; press **Walk here** (or search for
@@ -81,7 +81,7 @@ Globe (MapLibre + OpenFreeMap) ──"Walk here"──▶ street world at that p
                                                     around the player as they move
 ```
 
-Everything runs in the browser; `server.py` is a plain file server. See
+Everything runs in the browser; `serve.py` is a plain file server. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details and [docs/DATA.md](docs/DATA.md) for
 the data formats.
 
@@ -109,12 +109,19 @@ js/player.js            Movement, collision response, third-person camera
 js/util.js              Geometry helpers, spatial hash, mesh builder, time slicing
 data/detail/            Pre-built detailed tiles (downtown Davis)
 assets/textures/        CC0 material textures (see CREDITS.md there)
-server.py               Static file server (Python standard library only)
+serve.py                Static file server (Python standard library only)
 tools/build_detail.py   Build detailed tiles from OpenStreetMap (Overpass API)
 tools/fetch_textures.py Download and prepare the material textures
 tools/screenshot.py     Headless screenshots for checking visual changes
 docs/                   Architecture, data formats, roadmap, images
 ```
+
+## Deploying
+
+It's a static site: any static host works, with no build step. On [Vercel](https://vercel.com),
+import the repository and keep the defaults; `vercel.json` marks it as a plain static site
+(framework "Other", no build command) and sets cache headers for textures and map data. Every
+push to `main` redeploys.
 
 ## Adding a detailed area
 

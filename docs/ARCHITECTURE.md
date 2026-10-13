@@ -13,7 +13,7 @@ flowchart LR
   W --> L
 ```
 
-Everything runs in the browser. `server.py` serves static files; it has no data logic.
+Everything runs in the browser. `serve.py` serves static files; it has no data logic.
 
 - **Globe** (`globe.js`): MapLibre GL 5 in globe projection with OpenFreeMap's free "liberty"
   style, the RTL text plugin for Arabic-script labels, Nominatim search and reverse geocoding.

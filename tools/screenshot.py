@@ -3,7 +3,7 @@
 Take headless screenshots of the running game to check visual changes.
 
 Setup (once):  pip install -r tools/requirements.txt && python3 -m playwright install chromium
-Usage:         python3 server.py &                       # the game must be running
+Usage:         python3 serve.py &                       # the game must be running
                python3 tools/screenshot.py                # all views -> ./screenshots/
                python3 tools/screenshot.py davis paris    # only some views
                python3 tools/screenshot.py --out docs/images --software

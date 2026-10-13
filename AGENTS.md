@@ -10,13 +10,13 @@ any place; "Walk here" builds a realistic, walkable 3D neighborhood around that 
 more as you move. Everything runs in the browser (plain ES modules + three.js 0.160.1 +
 MapLibre 5.24.0, no build step): it downloads OpenFreeMap vector tiles (or, for selected tiles,
 richer pre-built OpenStreetMap data from `data/detail/`), cuts them into chunks and generates
-streets, buildings, trees, signs and props. `server.py` only serves files. Design for
+streets, buildings, trees, signs and props. `serve.py` only serves files. Design for
 "anywhere": Davis is the starting point, not a special case.
 
 ## Run
 
 ```bash
-python3 server.py            # http://localhost:8080 (globe) ; static files only
+python3 serve.py            # http://localhost:8080 (globe) ; static files only
 ```
 
 Useful URLs: `/?test` (walk straight into Davis, no click-to-play), `/?test&at=LAT,LON`
@@ -85,7 +85,7 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
 - **No build tooling.** No npm, bundler or transpiler. three.js (`0.160.1`) and MapLibre
   (`5.24.0`) are pinned in `index.html`. If you upgrade three.js, re-check lighting and the sky shader.
 - **Static site.** Everything must work from plain files (it is meant to be deployable to static
-  hosting). Don't add server-side logic; `server.py` stays a file server using only the
+  hosting). Don't add server-side logic; `serve.py` stays a file server using only the
   standard library on Python 3.9+.
 - **Build for anywhere, not just Davis.** Derive behavior from OSM data and geometry. Both data
   sources (vector tiles and detail files) must keep working; anything that only exists in
@@ -166,3 +166,7 @@ in detail data.
 - Nominatim allows about one request per second; search only runs on submit and reverse
   geocoding once per walk-in.
 - Pointer lock may be refused; the game then falls back to click-and-drag to look.
+- The site deploys to Vercel as static files (`vercel.json`). Don't add Python files named
+  `app.py`, `index.py`, `server.py`, `main.py`, `wsgi.py` or `asgi.py` at the root or in `src/`,
+  `app/` or `api/`: Vercel treats them as a Python web app and the deploy fails. That is why the
+  local server is `serve.py`.
