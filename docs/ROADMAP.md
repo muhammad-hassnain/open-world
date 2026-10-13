@@ -26,7 +26,9 @@ Candidates for next (not committed to an order):
 
 ## Later: a real-world layer from contributed captures
 
-Status: **idea, not started.** No capture or photo pipeline exists yet.
+Status: **idea, parked.** No capture or photo pipeline exists yet. When this is picked up, the
+planned first step is facade photos for a single building, then splats or meshes for a few
+landmarks.
 
 The base layer stays OpenStreetMap everywhere. On top of it, any building or block that someone
 has captured gets a realistic version that replaces the stylized one. Coverage grows as more
