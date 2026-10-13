@@ -12,6 +12,8 @@ import { Labels, CATS, escapeHtml } from './labels.js';
 import { MiniMap } from './minimap.js';
 import { Terrain } from './terrain.js';
 import { TouchControls } from './touch.js';
+import { Vehicle, loadCars } from './vehicles.js';
+import { takeParkedCar } from './props.js';
 import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
 
@@ -209,6 +211,7 @@ async function enterStreet(lat, lon, bearing = 0) {
   if (chunks) chunks.dispose();
   if (labels) labels.clear();
   minimap.clear();
+  clearVehicles();
   character.root.visible = false;
 
   frame = new Frame(lat, lon);
@@ -220,6 +223,8 @@ async function enterStreet(lat, lon, bearing = 0) {
   setLabelButtons(labels.mode);
   chunks = new ChunkManager({ frame, world, scene, labels, minimap, materials, terrain });
   try {
+    // Parked cars use the car models, so give them a moment to load first.
+    await Promise.race([carsReady, new Promise((r) => setTimeout(r, 5000))]);
     await chunks.warmup(0, 0, (p) => { $('loading-bar').style.width = `${Math.round(p * 100)}%`; });
   } catch (e) {
     console.error(e);
@@ -487,6 +492,135 @@ function closeProfile() {
   if (mode === 'street') startOrPause();
 }
 // Into the game: straight away on touch screens and in tests, else via the click-to-play panel.
+// ---------- cars and bikes ----------
+const carsReady = loadCars();
+const vehicles = new Set();   // vehicles in this world: summoned ones and parked cars someone took
+let myCar = null, myBike = null;
+
+function clearVehicles() {
+  if (player && player.vehicle) player.exit();
+  for (const v of vehicles) { scene.remove(v.root); v.dispose(); }
+  vehicles.clear();
+  myCar = myBike = null;
+}
+
+function addVehicle(v, x, z, yaw) {
+  scene.add(v.root);
+  vehicles.add(v);
+  v.place(x, z, yaw, world);
+  world.obstacles.add(v);
+  // Keep the world tidy: at most 8, dropping the oldest one nobody is using.
+  if (vehicles.size > 8) {
+    const old = [...vehicles].find((o) => !o.driver && o !== myCar && o !== myBike);
+    if (old) { vehicles.delete(old); world.obstacles.delete(old); scene.remove(old.root); old.dispose(); }
+  }
+  return v;
+}
+
+// Where a summoned car goes: the right-hand lane of the nearest street, pointing the way the
+// camera faces; else just ahead of the player. A bike goes beside the player.
+function vehicleSpot(kind) {
+  const p = player.pos, fx = -Math.sin(player.camYaw), fz = -Math.cos(player.camYaw);
+  const free = (x, z, r) => !world.buildingAt(x, z) && !world.blocked(x, z, r);
+  if (kind === 'car') {
+    const rd = world.nearestRoad(p.x, p.z, 40);
+    if (rd) {
+      const a = rd.road.p[rd.seg], b = rd.road.p[rd.seg + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      let tx = (b[0] - a[0]) / l, tz = (b[1] - a[1]) / l;
+      if (tx * fx + tz * fz < 0) { tx = -tx; tz = -tz; }
+      const rx = -tz, rz = tx, lane = rd.road.ow ? 0 : rd.road.hw * 0.28;
+      for (const along of [0, 6, -6, 12, -12, 20, -20]) {
+        const x = rd.x + tx * along + rx * lane, z = rd.z + tz * along + rz * lane;
+        if (free(x, z, 1.1)) return { x, z, yaw: Math.atan2(-tx, -tz) };
+      }
+    }
+    for (const d of [5, 8, 3]) {
+      const x = p.x + fx * d, z = p.z + fz * d;
+      if (free(x, z, 1.1)) return { x, z, yaw: player.camYaw };
+    }
+    return null;
+  }
+  const rx = Math.cos(player.camYaw), rz = -Math.sin(player.camYaw);
+  for (const [s, f] of [[1.2, 0.6], [-1.2, 0.6], [0, 1.6], [1.2, -1]]) {
+    const x = p.x + rx * s + fx * f, z = p.z + rz * s + fz * f;
+    if (free(x, z, 0.45)) return { x, z, yaw: player.camYaw };
+  }
+  return { x: p.x + rx * 1.2, z: p.z + rz * 1.2, yaw: player.camYaw };
+}
+
+function summon(kind) {
+  if (!player || mode !== 'street') return;
+  if (player.vehicle) { flash('Get out first (F)'); return; }
+  if (kind === 'car' && !myCar && !carsReadyNow()) { flash('Cars are still loading…'); return; }
+  const spot = vehicleSpot(kind);
+  if (!spot) { flash('No room for a car here'); return; }
+  let v = kind === 'car' ? myCar : myBike;
+  if (v) { world.obstacles.delete(v); v.place(spot.x, spot.z, spot.yaw, world); world.obstacles.add(v); }
+  else {
+    v = addVehicle(new Vehicle(kind, 'sedan'), spot.x, spot.z, spot.yaw);
+    if (kind === 'car') myCar = v; else myBike = v;
+  }
+  flash(kind === 'car' ? `Your car is here: ${touch.enabled ? 'tap Get in' : 'press F to get in'}` : `Your bike is here: ${touch.enabled ? 'tap Get on' : 'press F to get on'}`);
+}
+let carsLoadedFlag = false;
+carsReady.then(() => { carsLoadedFlag = true; });
+const carsReadyNow = () => carsLoadedFlag;
+
+// The vehicle the player could get into right now: one of ours, or a parked car.
+function vehicleInReach() {
+  if (!player || player.vehicle) return null;
+  const p = player.pos;
+  let best = null, bd = 1.6;
+  for (const v of vehicles) {
+    if (v.driver) continue;
+    const d = v.reach(p.x, p.z);
+    if (d < bd) { bd = d; best = v; }
+  }
+  if (best) return { vehicle: best };
+  const parked = carsReadyNow() ? world.parkedCarNear(p.x, p.z, 1.4) : null;
+  return parked ? { parked } : null;
+}
+
+function useVehicle() {
+  if (!player || mode !== 'street') return;
+  if (player.vehicle) { player.exit(); return; }
+  const r = vehicleInReach();
+  if (!r) { flash(touch.enabled ? 'Nothing to get into here: tap Car or Bike' : 'Nothing to get into here: V for a car, B for a bike'); return; }
+  let v = r.vehicle;
+  if (r.parked) {
+    const c = r.parked;
+    v = addVehicle(new Vehicle('car', c.type), c.x, c.z, Math.atan2(-c.ux, -c.uz));
+    takeParkedCar(c);
+  }
+  player.enter(v);
+}
+
+// Bottom-of-screen hint: what F does here, or the speed while driving.
+function updateDriveHint() {
+  const el = $('drive-hint');
+  let html = '';
+  if (player && player.vehicle) {
+    const kmh = Math.round(Math.abs(player.vehicle.speed) * 3.6);
+    html = `<b>${kmh}</b> km/h${touch.enabled ? '' : ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> brake'}`;
+  } else if (player) {
+    const r = vehicleInReach();
+    if (r) {
+      const bike = r.vehicle && r.vehicle.kind === 'bike';
+      html = touch.enabled ? '' : `<kbd>F</kbd> ${bike ? 'get on the bike' : 'get in the car'}`;
+    }
+    $('btn-use').textContent = r && r.vehicle && r.vehicle.kind === 'bike' ? 'Get on' : 'Get in';
+    $('btn-use').classList.toggle('hidden', !r);
+  }
+  if (player && player.vehicle) { $('btn-use').textContent = 'Get out'; $('btn-use').classList.remove('hidden'); }
+  $('btn-jump').textContent = player && player.vehicle ? 'Brake' : 'Jump';
+  document.body.classList.toggle('driving', !!(player && player.vehicle));
+  el.innerHTML = html;
+  el.classList.toggle('show', !!html);
+}
+$('btn-car').addEventListener('click', () => summon('car'));
+$('btn-bike').addEventListener('click', () => summon('bike'));
+$('btn-use').addEventListener('click', useVehicle);
+
 function startOrPause() {
   if (TEST || touch.enabled) playing = true; else setOverlay(true);
 }
@@ -515,6 +649,9 @@ actions.KeyM = () => openGlobe('map');
 actions.KeyP = openPhotos;
 actions.KeyI = openAbout;
 actions.KeyO = () => setVisible(!mp.wanted);
+actions.KeyV = () => summon('car');
+actions.KeyB = () => summon('bike');
+actions.KeyF = useVehicle;
 $('online').addEventListener('click', () => setVisible(!mp.wanted));
 showOnline(mp.status, 0);
 actions.KeyG = () => openGlobe('globe');
@@ -537,6 +674,7 @@ function loop(now) {
       right: active ? (k('KeyD', 'ArrowRight') ? 1 : 0) - (k('KeyA', 'ArrowLeft') ? 1 : 0) + tc.right : 0,
       gait: Math.max(shift, tc.gait),
       jump: active && (jumpQueued || tc.jump),
+      brake: active && (k('Space') || tc.brake),
       lookX: mouseDX * MOUSE_SENS + tc.lookX + (active ? ((k('KeyE') ? 1 : 0) - (k('KeyQ') ? 1 : 0)) * 2.2 * dt : 0),
       lookY: mouseDY * MOUSE_SENS + tc.lookY,
       zoom: zoomAcc + tc.zoom,
@@ -551,7 +689,10 @@ function loop(now) {
       camera.fov += (fov - camera.fov) * (1 - Math.exp(-4 * dt));
       camera.updateProjectionMatrix();
     }
-    chunks.update(p.x, p.z);
+    // Driving: load ahead in the direction of travel.
+    const v = player.vehicle;
+    if (v) { const [fx, fz] = v.fwd; chunks.update(p.x + fx * v.speed * 3, p.z + fz * v.speed * 3); }
+    else chunks.update(p.x, p.z);
     sun.target.position.set(p.x, p.y, p.z);
     sun.position.copy(sun.target.position).addScaledVector(SUN_DIR, 150);
     sky.position.copy(camera.position);
@@ -580,6 +721,7 @@ function loop(now) {
       const loc = world.locate(p.x, p.z);
       const street = loc.street ? `<b>${escapeHtml(loc.street)}</b>${loc.cross ? ` &amp; ${escapeHtml(loc.cross)}` : ''}` : '<b>Exploring</b>';
       $('where').innerHTML = `${street}${loc.area ? `<span>${escapeHtml(loc.area)}</span>` : ''}`;
+      updateDriveHint();
       const near = labels.nearest(p.x, p.z, 9);
       const changed = near && near.id !== cardId;
       if (changed) {
@@ -618,6 +760,7 @@ window.game = {
   openMap(open) { if (open) openGlobe('map'); else backToStreet(); },
   openGlobe, enterStreet,
   get spawn() { return spawn; },
+  vehicles,
   get profile() { return profile; },
   mp,
   character,

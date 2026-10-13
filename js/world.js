@@ -118,6 +118,7 @@ export class ChunkIndex {
     this.dynColliders = new SpatialHash(16);
     this.circles = new SpatialHash(8);
     this.raised = new SpatialHash(12);
+    this.parked = [];  // parked cars (props.js), which players can get into
   }
 
   _building(b) {
@@ -147,7 +148,9 @@ export class ChunkIndex {
       [cx + ux * hu + vx * hv, cz + uz * hu + vz * hv], [cx - ux * hu + vx * hv, cz - uz * hu + vz * hv],
     ], true);
     const bbox = bboxOf(outer);
-    this.dynColliders.insert({ outer, holes: [], bbox }, bbox.minX, bbox.minZ, bbox.maxX, bbox.maxZ);
+    const collider = { outer, holes: [], bbox, off: false };
+    this.dynColliders.insert(collider, bbox.minX, bbox.minZ, bbox.maxX, bbox.maxZ);
+    return collider;  // set .off to remove it (a parked car someone drove away)
   }
 
   addCircleCollider(x, z, r) {
@@ -186,6 +189,7 @@ export class World {
     this.terrain = terrain;
     this.chunks = new Map();
     this.placeName = null;
+    this.obstacles = new Set();  // things that move between chunks, e.g. parked vehicles: { circles() }
   }
 
   // Terrain height relative to the walk-in point (0 when flat or unknown).
@@ -297,13 +301,22 @@ export class World {
     return best;
   }
 
-  // Push a circle of radius r out of building/car polygons and round colliders.
-  resolveCircle(x, z, r) {
+  // Push a circle of radius r out of building/car polygons, round colliders and obstacles
+  // (except `ignore`, e.g. the vehicle being driven).
+  resolveCircle(x, z, r, ignore = null) {
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
+      for (const ob of this.obstacles) {
+        if (ob === ignore) continue;
+        for (const c of ob.circles()) {
+          const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), m = r + c.r;
+          if (d < m) { const l = d || 1e-6; x = c.x + (dx / l) * m; z = c.z + (dz / l) * m; moved = true; }
+        }
+      }
       for (const ch of this.near(x, z, r + 0.5)) {
         for (const hash of [ch.colliders, ch.dynColliders]) {
           for (const c of hash.near(x, z, r + 0.5)) {
+            if (c.off) continue;
             const bb = c.bbox;
             if (x < bb.minX - r || x > bb.maxX + r || z < bb.minZ - r || z > bb.maxZ + r) continue;
             const inside = pointInShape(x, z, c.outer, c.holes);
@@ -336,6 +349,22 @@ export class World {
       if (!moved) break;
     }
     return [x, z];
+  }
+
+  // The parked car closest to (x, z) within maxD meters of its side, or null.
+  parkedCarNear(x, z, maxD) {
+    let best = null, bd = maxD;
+    for (const ch of this.near(x, z, maxD + 3)) {
+      for (const c of ch.parked) {
+        if (c.taken) continue;
+        // Distance to the car's footprint (a 4.4 x 1.9 m box along (ux, uz)).
+        const dx = x - c.x, dz = z - c.z;
+        const along = Math.abs(dx * c.ux + dz * c.uz) - 2.2, across = Math.abs(-dx * c.uz + dz * c.ux) - 0.95;
+        const d = Math.hypot(Math.max(along, 0), Math.max(across, 0));
+        if (d < bd) { bd = d; best = c; }
+      }
+    }
+    return best;
   }
 
   blocked(x, z, r) {

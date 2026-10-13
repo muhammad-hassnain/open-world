@@ -3,9 +3,10 @@
 // position on to the other players in that room within RANGE meters. Nothing is stored.
 //
 // Client -> relay:  { t: 'p', name, look }                 profile (name, look)
-//                   { t: 's', la, lo, y, s, a }            state: lat, lon, yaw, speed, height above ground
+//                   { t: 's', la, lo, y, s, a, v }         state: lat, lon, yaw, speed, height above
+//                                                          ground, vehicle ('', 'bike', 'car:<model>')
 // Relay -> client:  { t: 'hi', id }                        your id
-//                   { t: 's', id, n, l, la, lo, y, s, a }  another player's state (n name, l look)
+//                   { t: 's', id, n, l, la, lo, y, s, a, v }  another player's state (n name, l look)
 //                   { t: 'x', id }                         that player left
 import { DurableObject } from 'cloudflare:workers';
 
@@ -15,6 +16,7 @@ const MAX_RATE = 12;       // messages per second per player; more are dropped
 const MAX_LEN = 400;       // bytes per message
 const NAME_MAX = 20;
 const LOOKS = new Set(['man', 'woman']);
+const VEHICLE = /^(|bike|car:[a-z-]{1,24})$/;
 
 export default {
   async fetch(req, env) {
@@ -32,7 +34,7 @@ const near = (a, b) => {
   const k = Math.cos((a.la * Math.PI) / 180) * 111320;
   return Math.hypot((a.lo - b.lo) * k, (a.la - b.la) * 110540) < RANGE;
 };
-const stateOf = (p) => JSON.stringify({ t: 's', id: p.id, n: p.name, l: p.look, la: p.la, lo: p.lo, y: p.y, s: p.s, a: p.a });
+const stateOf = (p) => JSON.stringify({ t: 's', id: p.id, n: p.name, l: p.look, la: p.la, lo: p.lo, y: p.y, s: p.s, a: p.a, v: p.v });
 
 export class Room extends DurableObject {
   async fetch() {
@@ -40,7 +42,7 @@ export class Room extends DurableObject {
     const [client, server] = Object.values(new WebSocketPair());
     const id = crypto.randomUUID().slice(0, 8);
     // Kept with the socket so it survives the object hibernating between messages.
-    server.serializeAttachment({ id, name: 'Walker', look: 'man', la: null, lo: null, y: 0, s: 0, a: 0, win: 0, n: 0 });
+    server.serializeAttachment({ id, name: 'Walker', look: 'man', la: null, lo: null, y: 0, s: 0, a: 0, v: '', win: 0, n: 0 });
     this.ctx.acceptWebSocket(server);
     server.send(JSON.stringify({ t: 'hi', id }));
     return new Response(null, { status: 101, webSocket: client });
@@ -61,7 +63,8 @@ export class Room extends DurableObject {
     } else if (m.t === 's') {
       const la = num(m.la, -85, 85), lo = num(m.lo, -180, 180);
       if (la === null || lo === null) return;
-      Object.assign(me, { la, lo, y: num(m.y, -10, 10) ?? 0, s: num(m.s, 0, 15) ?? 0, a: num(m.a, 0, 5) ?? 0 });
+      Object.assign(me, { la, lo, y: num(m.y, -10, 10) ?? 0, s: num(m.s, -15, 40) ?? 0, a: num(m.a, 0, 5) ?? 0,
+        v: typeof m.v === 'string' && VEHICLE.test(m.v) ? m.v : '' });
     } else {
       return;
     }

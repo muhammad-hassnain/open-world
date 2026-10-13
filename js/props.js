@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rng, SpatialHash, pointInShape, pick } from './util.js';
 import { inRect } from './clip.js';
+import { carsLoaded, carType, parkedCarMesh } from './vehicles.js';
 
 // ---------- shared geometry helpers ----------
 
@@ -236,18 +237,50 @@ function carDetailGeometry() {
   ]);
 }
 
+// Parked cars use the drivable car models (vehicles.js) when they have loaded, so a car someone
+// gets into looks the same; until then, simple box cars. Each is kept in chunk.parked.
 export function buildParkedCars(world, chunk, spots, group) {
   const A = assets();
   const items = [];
   for (const c of spots.cars) {
     if (world.blocked(c.x, c.z, 1.0)) continue;
     const front = world.elevation(c.x + c.ux * 2, c.z + c.uz * 2), back = world.elevation(c.x - c.ux * 2, c.z - c.uz * 2);
-    items.push({ x: c.x, z: c.z, y: (front + back) / 2, rot: yawX(c.ux, c.uz), tilt: Math.atan2(front - back, 4), seed: c.seed });
-    chunk.addBoxCollider(c.x, c.z, c.ux, c.uz, 2.2, 0.95);
+    const collider = chunk.addBoxCollider(c.x, c.z, c.ux, c.uz, 2.2, 0.95);
+    items.push({ x: c.x, z: c.z, ux: c.ux, uz: c.uz, y: (front + back) / 2, rot: yawX(c.ux, c.uz), tilt: Math.atan2(front - back, 4),
+      seed: c.seed, collider, taken: false });
   }
+  chunk.parked = items;
   if (!items.length) return items;
-  const colors = items.map((it) => new THREE.Color(pick(CAR_COLORS, it.seed)));
-  group.add(instanced(A.geo.carBody, A.vc, items, { colors }));
-  group.add(instanced(A.geo.carDetail, A.vc, items));
+  if (carsLoaded()) {
+    const byType = new Map();
+    for (const it of items) {
+      it.type = carType(it.seed);
+      if (!byType.has(it.type)) byType.set(it.type, []);
+      byType.get(it.type).push(it);
+    }
+    for (const [type, list] of byType) {
+      const { geometry, material } = parkedCarMesh(type);
+      const mesh = instanced(geometry, material, list);
+      list.forEach((it, i) => { it.mesh = mesh; it.index = i; });
+      group.add(mesh);
+    }
+  } else {
+    const colors = items.map((it) => new THREE.Color(pick(CAR_COLORS, it.seed)));
+    const body = instanced(A.geo.carBody, A.vc, items, { colors }), detail = instanced(A.geo.carDetail, A.vc, items);
+    items.forEach((it, i) => { it.meshes = [body, detail]; it.index = i; });
+    group.add(body, detail);
+  }
   return items;
+}
+
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+// Someone got into this parked car: hide it and remove its collider (it comes back when its
+// chunk is rebuilt).
+export function takeParkedCar(item) {
+  item.taken = true;
+  item.collider.off = true;
+  for (const m of item.mesh ? [item.mesh] : item.meshes) {
+    m.setMatrixAt(item.index, HIDDEN);
+    m.instanceMatrix.needsUpdate = true;
+  }
 }

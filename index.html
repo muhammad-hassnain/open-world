@@ -208,6 +208,26 @@
   .tbtn:active { background: rgba(255,255,255,0.3); }
   #btn-jump { right: 22px; bottom: 58px; width: 74px; height: 74px; }
   body.stick-right #btn-jump { right: auto; left: 22px; }
+  #vehicle-btns { position: absolute; right: 18px; bottom: 146px; z-index: 6; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  body.stick-right #vehicle-btns { right: auto; left: 18px; align-items: flex-start; }
+  @media (max-height: 500px) {  /* landscape phones: a row beside Jump instead of a stack */
+    #vehicle-btns { flex-direction: row-reverse; right: 108px; bottom: 70px; align-items: center; }
+    body.stick-right #vehicle-btns { flex-direction: row; right: auto; left: 108px; }
+  }
+  #vehicle-btns button { border: 0; border-radius: 999px; padding: 9px 15px; background: var(--panel); color: var(--text);
+    font: 600 13px system-ui; backdrop-filter: blur(6px); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.3);
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  #btn-use { background: var(--accent) !important; color: #fff !important; box-shadow: none !important; }
+  body.driving #btn-car, body.driving #btn-bike { display: none; }
+  #drive-hint { position: absolute; left: 50%; bottom: 210px; transform: translateX(-50%); z-index: 6; opacity: 0;
+    transition: opacity .15s; background: var(--panel); padding: 7px 14px; border-radius: 999px; font-size: 13px;
+    pointer-events: none; white-space: nowrap; backdrop-filter: blur(6px); }
+  #drive-hint.show { opacity: 1; }
+  #drive-hint b { font-size: 17px; }
+  body.driving #drive-hint { bottom: 78px; }
+  body.driving.touch #drive-hint { bottom: auto; top: 100px; }
+  body.driving #card { display: none; }
+  body.touch #drive-hint { bottom: auto; top: 100px; }
   #stick-side { display: none; align-items: center; gap: 4px; margin: 0 0 18px; font-size: 13px; color: var(--muted); }
   body.touch #stick-side { display: flex; }
   #stick-side span { margin-right: 8px; }
@@ -235,7 +255,7 @@
 </div>
 <div id="help" class="street-ui">
   <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> run (tap twice: sprint) &nbsp; <kbd>Space</kbd> jump<br>
-  Mouse look &nbsp; wheel zoom &nbsp; <kbd>P</kbd> photos &nbsp; <kbd>M</kbd> map &nbsp; <kbd>G</kbd> globe &nbsp; <kbd>O</kbd> online &nbsp; <kbd>I</kbd> about &nbsp; <kbd>Esc</kbd> pause
+  Mouse look &nbsp; wheel zoom &nbsp; <kbd>V</kbd> car &nbsp; <kbd>B</kbd> bike &nbsp; <kbd>F</kbd> get in/out &nbsp; <kbd>P</kbd> photos &nbsp; <kbd>M</kbd> map &nbsp; <kbd>G</kbd> globe &nbsp; <kbd>O</kbd> online &nbsp; <kbd>I</kbd> about &nbsp; <kbd>Esc</kbd> pause
 </div>
 <canvas id="minimap" class="street-ui" width="340" height="340"></canvas>
 <div id="attrib" class="street-ui">© <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> Data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Elevation <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Terrain Tiles</a></div>
@@ -243,7 +263,9 @@
 <div id="touch-ui" class="street-ui">
   <div id="stick"><div id="stick-knob"></div></div>
   <button id="btn-jump" class="tbtn">Jump</button>
+  <div id="vehicle-btns"><button id="btn-use" class="hidden">Get in</button><button id="btn-car">Car</button><button id="btn-bike">Bike</button></div>
 </div>
+<div id="drive-hint" class="street-ui"></div>
 <div id="flash"></div>
 
 <div id="intro" class="hidden street-ui">
@@ -256,6 +278,8 @@
       <span>Sprint</span><span>Tap <kbd>Shift</kbd> twice and hold</span>
       <span>Look</span><span>Mouse (or <kbd>Q</kbd> <kbd>E</kbd>)</span>
       <span>Labels</span><span><kbd>L</kbd> — tags, signs, or off</span>
+      <span>Car / bike</span><span><kbd>V</kbd> / <kbd>B</kbd> — bring yours here</span>
+      <span>Get in / out</span><span><kbd>F</kbd> — also any parked car; drive with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>, <kbd>Space</kbd> brakes</span>
       <span>Photos</span><span><kbd>P</kbd> — photos of the place you're at</span>
       <span>Map</span><span><kbd>M</kbd> — pick a spot nearby</span>
       <span>Globe</span><span><kbd>G</kbd> — fly out and go anywhere</span>
@@ -300,6 +324,7 @@
       · Photos <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia Commons</a> (credited with each photo)
       · Search <a href="https://nominatim.org" target="_blank" rel="noopener">Nominatim</a>
       · Characters <a href="https://quaternius.com" target="_blank" rel="noopener">Quaternius</a>
+      · Cars <a href="https://kenney.nl" target="_blank" rel="noopener">Kenney</a>
       · Multiplayer relay on <a href="https://workers.cloudflare.com" target="_blank" rel="noopener">Cloudflare Workers</a>
       · Textures <a href="https://polyhaven.com" target="_blank" rel="noopener">Poly Haven</a>,
       <a href="https://ambientcg.com" target="_blank" rel="noopener">ambientCG</a>

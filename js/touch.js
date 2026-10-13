@@ -30,6 +30,7 @@ export class TouchControls {
     this.pinch = 0;             // last distance between two look touches
     this.lookX = 0; this.lookY = 0; this.zoom = 0;
     this.jump = false;
+    this.jumpHeld = false;     // the Jump button doubles as the brake while driving
     let side = 'left';
     try { side = localStorage.getItem(SIDE_KEY) || side; } catch { /* storage unavailable */ }
     this.setSide(side, false);
@@ -40,7 +41,8 @@ export class TouchControls {
     surface.addEventListener('pointercancel', (e) => this._up(e));
     window.addEventListener('touchstart', () => this.enable(), { passive: true });
     window.addEventListener('resize', () => this._drawStick());
-    ui.jump.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.jump = true; });
+    ui.jump.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.jump = true; this.jumpHeld = true; });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) ui.jump.addEventListener(ev, () => { this.jumpHeld = false; });
     for (const b of ui.sideButtons) b.addEventListener('click', () => this.setSide(b.dataset.side));
   }
 
@@ -63,7 +65,7 @@ export class TouchControls {
 
   // Input for this frame; look, zoom and jump are consumed.
   read() {
-    const out = { fwd: 0, right: 0, gait: 0, lookX: this.lookX, lookY: this.lookY, zoom: this.zoom, jump: this.jump };
+    const out = { fwd: 0, right: 0, gait: 0, lookX: this.lookX, lookY: this.lookY, zoom: this.zoom, jump: this.jump, brake: this.jumpHeld };
     this.lookX = 0; this.lookY = 0; this.zoom = 0; this.jump = false;
     const s = this.stick;
     if (s && s.auto) {
@@ -90,6 +92,7 @@ export class TouchControls {
   reset() {
     this.stick = null;
     this.looks.clear();
+    this.jumpHeld = false;
     this._drawStick();
   }
 

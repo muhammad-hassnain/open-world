@@ -189,6 +189,19 @@ name tag above the head, and appear as blue dots on the minimap; anyone silent f
 removed. The relay keeps nothing but the live connections, limits each player to 12 messages a
 second, and cleans names. Hidden players don't connect at all.
 
+## Cars and bikes (`vehicles.js`)
+
+`V` / `B` bring the player's car (to the right-hand lane of the nearest street) or bike (beside
+them); `F` gets into the nearest one, or into a parked car, which is taken off its chunk's
+instanced mesh and replaced by a drivable `Vehicle` of the same model. Driving is arcade: speed
+eases toward the throttle target (25 m/s car, 8 m/s bike), steering narrows with speed, the
+heading follows a bicycle model, and a few footprint circles are pushed out of buildings,
+parked cars, trees and other vehicles, bouncing on head-on hits. The ground under the wheels
+sets height, pitch and roll; bikes lean into turns. The camera chases behind the vehicle, and
+while driving, chunks are requested ahead in the direction of travel. A car hides its driver; a
+bike carries the character in a pedaling pose. Other players' vehicles come through the relay
+as a `v` field and are drawn from the same models.
+
 ## Player, camera and HUD
 
 - Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, sprint 9 m/s, jump), collision via

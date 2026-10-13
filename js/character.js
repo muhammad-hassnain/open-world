@@ -14,6 +14,13 @@ export const LOOKS = {
 };
 const MODEL_HEIGHT = 1.8;
 
+// Riding a bicycle: extra bone rotations (radians, about each bone's local X) on top of the idle
+// pose; the legs follow the pedals.
+export const RIDE = { hip: 0.38, thigh: 1.0, thighSwing: 0.3, knee: 1.6, kneeSwing: 0.4, torso: 0.18,
+  arm: -0.95, elbow: -0.25, lift: -0.05 };
+const AX = new THREE.Vector3(1, 0, 0), _q = new THREE.Quaternion();
+const turn = (bone, a) => { if (bone) bone.quaternion.multiply(_q.setFromAxisAngle(AX, a)); };
+
 const loader = new GLTFLoader();
 const loaded = new Map();
 function loadLook(name) {
@@ -46,6 +53,8 @@ export class Character {
     this.look = null;
     this.w = { idle: 1, walk: 0, run: 0 };
     this.lean = 0;
+    this.seat = null;    // null | 'bike' | 'car'
+    this.pedal = 0;
     this.setLook(look);
   }
 
@@ -78,11 +87,29 @@ export class Character {
       this.actions[key] = action;
     }
     this.speeds = { walk: spec.walk * s, run: spec.run * s };
+    const bone = (n) => model.getObjectByName(n);
+    this.bones = { hips: bone('Hips'), torso: bone('Torso'), ul: bone('UpperLegL'), ur: bone('UpperLegR'), ll: bone('LowerLegL'),
+      lr: bone('LowerLegR'), al: bone('UpperArmL'), ar: bone('UpperArmR'), fl: bone('LowerArmL'), fr: bone('LowerArmR') };
+    // Rest rotations: bones the clips don't move would otherwise keep (and pile up) the riding pose.
+    this.rest = new Map(Object.values(this.bones).filter(Boolean).map((b) => [b, b.quaternion.clone()]));
+  }
+
+  _resetBones() {
+    if (this.rest) for (const [b, q] of this.rest) b.quaternion.copy(q);
+  }
+
+  // Sitting on a bike or in a car (null: on foot).
+  setSeat(seat) {
+    this.seat = seat;
+    this.body.rotation.x = 0;
+    this.body.position.y = 0;
+    this._resetBones();
   }
 
   // speed: horizontal m/s actually moved; airborne: not on ground.
   update(dt, speed, airborne) {
     if (!this.mixer) { this.fallback.update(dt, speed, airborne); return; }
+    if (this.seat) { this._sit(dt, speed); return; }
     // Blend idle -> walk -> run by speed; in the air, hold a stride.
     const walkT = clamp((speed - 0.15) / 0.5, 0, 1), runT = clamp((speed - 2.6) / 1.2, 0, 1);
     const target = airborne ? { idle: 0.2, walk: 0, run: 0.8 } : { idle: 1 - walkT, walk: walkT * (1 - runT), run: walkT * runT };
@@ -98,6 +125,27 @@ export class Character {
     this.mixer.update(dt);
   }
 }
+
+// Seated: idle pose for the upper body; on a bike the legs pedal with the speed.
+Character.prototype._sit = function (dt, speed) {
+  for (const k in this.w) {
+    this.w[k] = k === 'idle' ? 1 : 0;
+    this.actions[k].setEffectiveWeight(this.w[k]);
+  }
+  this._resetBones();
+  this.mixer.update(dt);
+  if (this.seat !== 'bike') return;
+  const B = this.bones, R = RIDE;
+  this.pedal += (speed * dt) / 0.34 * 0.55;
+  const s = Math.sin(this.pedal);
+  this.body.position.y = R.lift;
+  turn(B.hips, R.hip);
+  turn(B.torso, R.torso);
+  turn(B.ul, R.thigh + s * R.thighSwing); turn(B.ur, R.thigh - s * R.thighSwing);
+  turn(B.ll, R.knee + s * R.kneeSwing); turn(B.lr, R.knee - s * R.kneeSwing);
+  turn(B.al, R.arm); turn(B.ar, R.arm);
+  turn(B.fl, R.elbow); turn(B.fr, R.elbow);
+};
 
 // Stylized procedural person, used until (or if) the 3D model loads. Faces -Z at yaw 0; root sits at the feet.
 class SimpleFigure {

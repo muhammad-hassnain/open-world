@@ -77,6 +77,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
 | `js/character.js` | `Character(look)`: 3D person from `LOOKS` (glTF in `assets/characters/`) with idle/walk/run blended by speed; a procedural figure stands in until it loads; `setLook()` |
+| `js/vehicles.js` | `Vehicle('car' \| 'bike', type)`: Kenney car models (stretched to real size) or a built bicycle; arcade `drive()` with footprint circles against `world.resolveCircle`, ground pitch/roll, bike lean; `loadCars()`, `parkedCarMesh()` for instanced parked cars |
 | `js/profile.js` | Player name and look in localStorage (`loadProfile`, `saveProfile`, `cleanName`) |
 | `js/player.js` | Movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
 | `js/touch.js` | `TouchControls`: joystick fixed in a bottom corner (held all the way locks a sprint that continues after release until the stick is touched again), look anywhere else, pinch zoom, Jump in the other corner; `setSide('left' \| 'right')` (saved in localStorage); adds `body.touch` / `body.stick-right` |
@@ -194,6 +195,13 @@ in detail data.
   Service, which rate-limits hard. Every photo shown must carry its author and license.
 - The start-at-your-location prompt (geolocation) only exists on https and localhost, so it
   never appears over a plain-http Tailscale address.
+- Vehicles: parked cars are props in `chunk.parked` (`takeParkedCar` hides the instance and turns
+  its collider off; it comes back when the chunk rebuilds). Vehicles that move between chunks are
+  `world.obstacles` (circles) while parked; the one being driven passes itself as `ignore` to
+  `resolveCircle`. The rider pose (`RIDE` in `character.js`) rotates bones on top of the idle clip,
+  resetting them first because the clip doesn't animate every bone.
+- Terrain PNGs are decoded in `terrain.js` (`decodePNG`), not via a canvas: browsers can
+  color-manage canvas images (wide-gamut Macs), and one step in the red channel is 256 m.
 - Multiplayer privacy: a player who started at their own (geolocated) position starts hidden;
   "hide me" is remembered in localStorage (`openworld.hidden`). Tests (`?test`) stay offline
   unless `?relay=` is given. Test with two browser contexts against `npx wrangler dev`.

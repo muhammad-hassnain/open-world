@@ -34,6 +34,9 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
   stucco, brick, concrete, corrugated metal; shingle, clay-tile and gravel roofs), gable and hip
   roofs, porches, shutters, balconies, storefronts and awnings, varied building by building.
 - **Real roof colors in the US**: each roof's color is measured from USGS aerial photos.
+- **Cars and bikes**: press `V` for your car or `B` for your bike (or tap Car / Bike), `F` to
+  get in, and drive with `W` `A` `S` `D`; you can also get into any parked car. Arcade handling,
+  real hills, collisions, and other players see you driving.
 - **Other players**: everyone online nearby shows up with their name and character, live. You
   start hidden if you began at your own location; `O` (or the Online button) shows or hides you.
 - **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars.
@@ -79,6 +82,9 @@ the address bar keeps your current position so you can share it.
 | Photos of the place you're at | `P` |
 | About, credits and the GitHub link | `I` (also on the pause screen and the globe) |
 | Show or hide yourself to other players | `O` (or the Online button) |
+| Your car / your bike | `V` / `B` |
+| Get in or out (also any parked car) | `F` |
+| Drive / brake | `W` `A` `S` `D` / `Space` |
 | Map of where you are (pick a spot to walk to) | `M` |
 | Fly out to the globe | `G` |
 | Respawn where you walked in | `R` |
@@ -129,6 +135,7 @@ js/photos.js            Photos of places from Wikimedia Commons (matched through
 js/minimap.js           Rotating minimap from per-chunk canvases
 js/character.js         The player's character (3D models with animations) and its fallback figure
 js/profile.js           The player's name and character, kept on the device
+js/vehicles.js          Cars (CC0 models) and bikes: arcade driving, collisions, the rider
 js/multiplayer.js       Other players: connection to the relay, their characters and name tags
 js/player.js            Movement, collision response, third-person camera
 js/touch.js             Touch controls: fixed joystick with sprint lock, look, pinch zoom, Jump
@@ -136,6 +143,7 @@ js/util.js              Geometry helpers, spatial hash, mesh builder, time slici
 data/detail/            Pre-built detailed tiles (downtown Davis)
 assets/textures/        CC0 material textures (see CREDITS.md there)
 assets/characters/      CC0 character models (see CREDITS.md there)
+assets/vehicles/        CC0 car models (see CREDITS.md there)
 assets/icons/           App icons (tab, home screen); favicon.ico and site.webmanifest sit at the root
 serve.py                Static file server (Python standard library only)
 relay/                  Multiplayer relay (Cloudflare Worker + Durable Objects), deployed separately
@@ -178,7 +186,8 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
   The in-game credit lines must stay visible.
 - Material textures from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com),
   CC0 ([list](assets/textures/CREDITS.md)). Characters by [Quaternius](https://quaternius.com),
-  CC0 ([list](assets/characters/CREDITS.md)). Roof colors from USGS/USDA orthoimagery
+  CC0 ([list](assets/characters/CREDITS.md)). Cars by [Kenney](https://kenney.nl), CC0
+  ([list](assets/vehicles/CREDITS.md)). Roof colors from USGS/USDA orthoimagery
   ([The National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map)), public domain.
 - Elevation from [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS (Mapzen;
   USGS 3DEP, SRTM, GMTED2010, ETOPO1, EU-DEM and national datasets); the full required

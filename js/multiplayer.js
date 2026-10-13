@@ -3,6 +3,7 @@
 // different spot (each has their own Frame). Other players are drawn as Characters with name tags.
 import * as THREE from 'three';
 import { Character } from './character.js';
+import { Vehicle, carsLoaded } from './vehicles.js';
 import { damp, angleDelta } from './util.js';
 
 // The deployed relay; ?relay=ws://localhost:8787 points a page at a local `wrangler dev`.
@@ -33,7 +34,7 @@ export class Multiplayer {
     this.wanted = false;
     this.profile = { name: '', look: 'man' };
     this.frame = null; this.world = null;
-    this.last = { t: 0, x: 0, z: 0, yaw: 0, s: 0, a: 0 };
+    this.last = { t: 0, x: 0, z: 0, yaw: 0, s: 0, a: 0, v: '' };
     this.retry = 1000;
     this._v = new THREE.Vector3();
   }
@@ -66,13 +67,15 @@ export class Multiplayer {
       const [lat, lon] = this.frame.toLatLon(p.x, p.z);
       const room = roomOf(lat, lon);
       if (room !== this.room || !this.ws) this._connect(room);
-      const a = Math.max(0, p.y - this.world.groundAt(p.x, p.z));
+      const veh = player.vehicle;
+      const a = veh ? 0 : Math.max(0, p.y - this.world.groundAt(p.x, p.z));
+      const v = veh ? veh.code : '', s = veh ? veh.speed : player.speed;  // vehicles send signed speed
       const L = this.last;
       const moved = Math.hypot(p.x - L.x, p.z - L.z) > 0.15 || Math.abs(angleDelta(L.yaw, player.yaw)) > 0.05
-        || Math.abs(player.speed - L.s) > 0.3 || a > 0.05 || L.a > 0.05;
-      if (this.ws && this.ws.readyState === 1 && ((moved && now - L.t >= SEND_MS) || now - L.t >= HEARTBEAT_MS)) {
-        this._send({ t: 's', la: +lat.toFixed(7), lo: +lon.toFixed(7), y: +player.yaw.toFixed(3), s: +player.speed.toFixed(2), a: +a.toFixed(2) });
-        Object.assign(L, { t: now, x: p.x, z: p.z, yaw: player.yaw, s: player.speed, a });
+        || Math.abs(s - L.s) > 0.3 || a > 0.05 || L.a > 0.05;
+      if (this.ws && this.ws.readyState === 1 && ((moved && now - L.t >= SEND_MS) || now - L.t >= HEARTBEAT_MS || v !== L.v)) {
+        this._send({ t: 's', la: +lat.toFixed(7), lo: +lon.toFixed(7), y: +player.yaw.toFixed(3), s: +s.toFixed(2), a: +a.toFixed(2), v });
+        Object.assign(L, { t: now, x: p.x, z: p.z, yaw: player.yaw, s, a, v });
       }
     }
     this._movePeers(dt, now, player);
@@ -151,11 +154,33 @@ export class Multiplayer {
     if (m.n !== o.name) { o.name = m.n; o.tag.textContent = m.n; }
     if (Math.hypot(tx - o.x, tz - o.z) > SNAP) { o.x = tx; o.z = tz; }
     Object.assign(o, { tx, tz, tyaw: m.y, s: m.s || 0, a: m.a || 0, seen: performance.now() });
+    this._ride(o, typeof m.v === 'string' ? m.v : '');
+  }
+
+  // Show a peer in their car or on their bike (or on foot).
+  _ride(o, v) {
+    if (v.startsWith('car:') && !carsLoaded()) v = '';
+    if (v === (o.v || '')) return;
+    o.v = v;
+    if (o.vehicle) { this.scene.remove(o.vehicle.root); o.vehicle.dispose(); o.vehicle = null; }
+    const root = o.char.root;
+    if (!v) { this.scene.add(root); o.char.setSeat(null); return; }
+    o.vehicle = new Vehicle(v === 'bike' ? 'bike' : 'car', v.slice(4), { color: '#2f7fc1' });
+    this.scene.add(o.vehicle.root);
+    if (v === 'bike') {
+      o.vehicle.tilt.add(root);
+      root.position.set(0, 0, 0.18);
+      root.rotation.set(0, 0, 0);
+      o.char.setSeat('bike');
+    } else {
+      o.char.setSeat('car');
+    }
   }
 
   _drop(id) {
     const o = this.peers.get(id);
     if (!o) return;
+    if (o.vehicle) { this.scene.remove(o.vehicle.root); o.vehicle.dispose(); }
     this.scene.remove(o.char.root);
     o.char.dispose?.();
     o.tag.remove();
@@ -167,17 +192,29 @@ export class Multiplayer {
     const cam = this.camera, W = window.innerWidth, H = window.innerHeight, v = this._v;
     for (const [id, o] of this.peers) {
       if (now - o.seen > TIMEOUT_MS) { this._drop(id); continue; }
-      o.x = damp(o.x, o.tx, 8, dt);
-      o.z = damp(o.z, o.tz, 8, dt);
+      // Vehicles move several meters between updates: aim where they should be by now.
+      let tx = o.tx, tz = o.tz;
+      if (o.vehicle) {
+        const ahead = o.s * Math.min(0.6, (now - o.seen) / 1000);
+        tx -= Math.sin(o.tyaw) * ahead; tz -= Math.cos(o.tyaw) * ahead;
+      }
+      o.x = damp(o.x, tx, 8, dt);
+      o.z = damp(o.z, tz, 8, dt);
       o.yaw += angleDelta(o.yaw, o.tyaw) * (1 - Math.exp(-10 * dt));
       const far = player ? Math.hypot(o.x - player.pos.x, o.z - player.pos.z) : 0;
-      const root = o.char.root;
+      const root = o.vehicle ? o.vehicle.root : o.char.root;
       root.visible = far < DRAW_RANGE;
       if (!root.visible) { o.tag.style.display = 'none'; continue; }
       const y = (this.world ? this.world.groundAt(o.x, o.z) : 0) + o.a;
-      root.position.set(o.x, y, o.z);
-      root.rotation.y = o.yaw;
-      o.char.update(dt, o.s, o.a > 0.05);
+      if (o.vehicle) {
+        o.vehicle.follow(o.x, o.z, y, o.yaw, o.s, dt);
+        o.char.root.visible = o.v === 'bike';
+        o.char.update(dt, Math.abs(o.s), false);
+      } else {
+        root.position.set(o.x, y, o.z);
+        root.rotation.y = o.yaw;
+        o.char.update(dt, o.s, o.a > 0.05);
+      }
       // Name tag above the head.
       v.set(o.x, y + 2.05, o.z).project(cam);
       const d = cam.position.distanceTo(root.position);
