@@ -1,7 +1,8 @@
 # Data formats
 
-All map data comes from [OpenStreetMap](https://www.openstreetmap.org) and is
-© OpenStreetMap contributors under the [Open Database License](https://www.openstreetmap.org/copyright).
+Map data comes from [OpenStreetMap](https://www.openstreetmap.org) (© OpenStreetMap contributors,
+[Open Database License](https://www.openstreetmap.org/copyright)), enriched with
+[Overture Maps](https://docs.overturemaps.org/attribution/) places and buildings.
 
 ## Sources
 
@@ -9,6 +10,22 @@ All map data comes from [OpenStreetMap](https://www.openstreetmap.org) and is
 | --- | --- | --- | --- |
 | [OpenFreeMap](https://openfreemap.org) vector tiles, [OpenMapTiles](https://openmaptiles.org/schema/) schema | The whole planet, updated weekly | z14 `.pbf` tiles fetched by the browser | Building footprints with heights/colours, roads by class with names, landcover/landuse, water, named places, neighborhoods |
 | Detail tiles from `tools/build_detail.py` (Overpass API) | Tiles listed in `DETAIL_TILES` (downtown Davis today) | `data/detail/14/<x>/<y>.json` + `data/detail/index.json` | Everything above plus building types, mapped sidewalks/crossings, lanes/width tags, trees, benches, lamps, hydrants, addresses, opening hours, cuisine, websites |
+
+Both are enriched in the browser with [Overture Maps](https://overturemaps.org) (`js/overture.js`),
+read from Overture's monthly PMTiles archives
+(`https://overturemaps-extras-us-west-2.s3.amazonaws.com/tiles/<release>/{places,buildings}.pmtiles`,
+newest release found by listing the bucket) with range requests, z14 like the other sources:
+
+* **Places** (Meta, Foursquare, Microsoft, BrightQuery; CDLA Permissive 2.0) are matched to OSM
+  places by name within 60 m. A match fills in the missing address, phone and website; an OSM place
+  that Overture only knows as `permanently_closed` is dropped. Unmatched places that are open, have
+  confidence ≥ 0.7 and a storefront-like category become new places with ids `o<overture id>`
+  (offices, home businesses, parking and parcel lockers are left out).
+* **Buildings**: a footprint that overlaps an OSM building only adds what that building lacks
+  (`t` from `class`, floors, height, facade colour); this gives vector-tile buildings real types.
+  Footprints OSM doesn't have (Microsoft ML, Esri, Google; ≥ 12 m²) are added.
+
+If Overture is unreachable (12 s timeout) the tile keeps its OSM data only.
 
 Elevation is separate from the map data; see [Elevation](#elevation). Place photos come live
 from [Wikimedia Commons](https://commons.wikimedia.org), matched to places through

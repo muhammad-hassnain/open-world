@@ -4,8 +4,10 @@
 // Source 2 (selected tiles): detailed OpenStreetMap data pre-built by tools/build_detail.py
 //                            into data/detail/<z>/<x>/<y>.json.
 // Both produce the same structure in tile units (0..extent); toLocal() converts it to meters.
+// Either is then enriched with Overture Maps places and buildings (overture.js).
 
 import { decodeTile, polygons } from './mvt.js';
+import { fetchOverture, mergeOverture } from './overture.js';
 
 const TILEJSON = 'https://tiles.openfreemap.org/planet';
 
@@ -25,6 +27,12 @@ function detailTiles() {
 }
 
 export async function fetchTile(z, x, y) {
+  const ov = fetchOverture(z, x, y);
+  const d = await fetchBase(z, x, y);
+  return mergeOverture(d, await ov, z, y);
+}
+
+async function fetchBase(z, x, y) {
   const key = `${z}/${x}/${y}`;
   if ((await detailTiles()).has(key)) {
     const res = await fetch(`data/detail/${key}.json`);

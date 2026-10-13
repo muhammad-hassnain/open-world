@@ -9,7 +9,8 @@ An open world of the whole planet built from OpenStreetMap data. A MapLibre glob
 any place; "Walk here" builds a realistic, walkable 3D neighborhood around that point and streams
 more as you move. Everything runs in the browser (plain ES modules + three.js 0.160.1 +
 MapLibre 5.24.0, no build step): it downloads OpenFreeMap vector tiles (or, for selected tiles,
-richer pre-built OpenStreetMap data from `data/detail/`) and elevation tiles, cuts them into
+richer pre-built OpenStreetMap data from `data/detail/`), enriched with Overture Maps places and
+buildings, and elevation tiles, cuts them into
 chunks and generates streets, buildings, trees, signs and props on the real terrain. `serve.py` only serves files. Design for
 "anywhere": Davis is the starting point, not a special case.
 
@@ -65,6 +66,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/terrain.js` | `Terrain`: loads Terrarium elevation PNGs (z15) per z14 tile, bilinear `at(x, z)` relative to the walk-in point, `water(x, z)` clamped to sea level |
 | `js/farview.js` | `FarView`: zoom-12 `Terrain` ring mesh (420 m to 20 km, colored by height/slope) plus a sea disc, rebuilt after moving 2.5 km; sunk and depth-pushed behind the chunks; `lowAround()` drives `atmo.viewBoost` (haze lifts when high) |
 | `js/tiledata.js` | Fetch a z14 tile: detail JSON if listed in `data/detail/index.json`, else OpenFreeMap; OpenMapTiles → common format; `toLocal` |
+| `js/overture.js` | Overture Maps PMTiles reader (range requests, newest release from the bucket listing); `mergeOverture` adds fresher places (drops ones closed for good, fills address/phone/web) and footprints/building types OSM lacks |
 | `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
 | `js/chunks.js` | `ChunkManager`: which chunks to load/build/drop, tile prep (T-junction repair, road-width fitting, footway classification), clipping, builds |
 | `js/clip.js` | Clip rings/polylines to a rectangle; `onBoundary` marks seams between chunks |
@@ -221,6 +223,9 @@ in detail data.
 - Multiplayer privacy: a player who started at their own (geolocated) position starts hidden;
   "hide me" is remembered in localStorage (`openworld.hidden`). Tests (`?test`) stay offline
   unless `?relay=` is given. Test with two browser contexts against `npx wrangler dev`.
+- Overture keeps only the last few monthly releases online; `overture.js` lists the bucket for the
+  newest one that has both `places` and `buildings` (`FALLBACK_RELEASE` if listing fails). Overture
+  calls these tiles "for data inspection", so everything must keep working when they fail.
 - Nominatim allows about one request per second; search only runs on submit and reverse
   geocoding once per walk-in.
 - Pointer lock may be refused; the game then falls back to click-and-drag to look.
