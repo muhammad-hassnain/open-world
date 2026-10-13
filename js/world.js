@@ -120,6 +120,7 @@ export class ChunkIndex {
     this.circles = new SpatialHash(8);
     this.raised = new SpatialHash(12);
     this.parked = [];  // parked cars (props.js), which players can get into
+    this.lamps = [];   // street lamps (props.js), lit at night
   }
 
   _building(b) {

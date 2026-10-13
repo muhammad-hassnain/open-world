@@ -15,6 +15,7 @@ import { TouchControls } from './touch.js';
 import { Vehicle, loadCars, CAR_TYPES, CAR_MODELS } from './vehicles.js';
 import { Traffic, updateLights } from './traffic.js';
 import { Police, Siren } from './police.js';
+import { Atmosphere, TIME_MODES, WEATHER_MODES } from './atmosphere.js';
 import { takeParkedCar } from './props.js';
 import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
@@ -43,60 +44,13 @@ const touch = new TouchControls(renderer.domElement, {
 });
 if (MOBILE) touch.enable();
 
-const HORIZON = new THREE.Color('#dce8f2');
 const scene = new THREE.Scene();
-scene.background = HORIZON;
-scene.fog = new THREE.Fog(HORIZON, 120, 620);
 const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 2000);
-
-// Gradient sky; tone-mapped like the rest of the scene so it matches the fog at the horizon.
-function skyMaterial(top, horizon, ground) {
-  return new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
-    uniforms: { top: { value: top }, horizon: { value: horizon }, ground: { value: ground } },
-    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `
-      uniform vec3 top;
-      uniform vec3 horizon;
-      uniform vec3 ground;
-      varying vec3 vP;
-      void main() {
-        float h = normalize(vP).y;
-        vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.55)) : mix(horizon, ground, pow(min(1.0, -h * 4.0), 0.6));
-        gl_FragColor = vec4(c, 1.0);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }`,
-  });
-}
-const SKY_TOP = new THREE.Color('#4f93db');
-const sky = new THREE.Mesh(new THREE.SphereGeometry(1200, 32, 16), skyMaterial(SKY_TOP, HORIZON, HORIZON));
-sky.renderOrder = -1;
-scene.add(sky);
-
-// Soft outdoor light for the PBR materials, baked from the same sky over a grassy ground.
-{
-  const envScene = new THREE.Scene();
-  envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), skyMaterial(SKY_TOP, HORIZON, new THREE.Color('#6d7a55'))));
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(envScene, 0.02).texture;
-  pmrem.dispose();
-}
 
 // Ground beyond the loaded chunks, so the horizon never shows a void.
 const farGround = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: GROUND_COLOR, roughness: 1 }));
 farGround.position.y = -0.05;
 scene.add(farGround);
-
-scene.add(new THREE.HemisphereLight('#e2efff', '#8e9a72', 0.7));
-const sun = new THREE.DirectionalLight('#fff0d8', 3.0);
-const SUN_DIR = new THREE.Vector3(-0.5, 0.78, 0.38).normalize();
-sun.castShadow = true;
-sun.shadow.mapSize.setScalar(MOBILE ? 1024 : 2048);
-Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 400 });
-sun.shadow.bias = -0.0004;
-sun.shadow.normalBias = 0.04;
-scene.add(sun, sun.target);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -105,6 +59,8 @@ window.addEventListener('resize', () => {
 });
 
 const materials = makeMaterials(renderer);
+// Sky, sun, fog, weather and night lighting (atmosphere.js).
+const atmo = new Atmosphere({ renderer, scene, materials, mobile: MOBILE });
 const minimap = new MiniMap($('minimap'));
 const profile = loadProfile();
 const character = new Character(profile.look);
@@ -217,6 +173,7 @@ async function enterStreet(lat, lon, bearing = 0) {
   character.root.visible = false;
 
   frame = new Frame(lat, lon);
+  atmo.setPlace(lat, lon);
   const terrain = new Terrain(frame);
   world = new World(frame, terrain);
   if (traffic) traffic.dispose();
@@ -697,6 +654,19 @@ actions.KeyO = () => setVisible(!mp.wanted);
 actions.KeyV = () => summon('car');
 actions.KeyB = () => summon('bike');
 actions.KeyF = useVehicle;
+// Time and weather: live (the real ones there) or picked.
+function setTimeMode(m) { atmo.setTimeMode(m); syncAtmoButtons(); flash(`Time: ${m === 'live' ? 'live (local time there)' : m}`); }
+function setWeatherMode(m) { atmo.setWeatherMode(m); syncAtmoButtons(); flash(`Weather: ${m === 'live' ? 'live (real weather there)' : m}`); }
+function syncAtmoButtons() {
+  for (const b of document.querySelectorAll('#time-mode button')) b.classList.toggle('on', b.dataset.v === atmo.timeMode);
+  for (const b of document.querySelectorAll('#weather-mode button')) b.classList.toggle('on', b.dataset.v === atmo.weatherMode);
+}
+for (const b of document.querySelectorAll('#time-mode button')) b.addEventListener('click', () => setTimeMode(b.dataset.v));
+for (const b of document.querySelectorAll('#weather-mode button')) b.addEventListener('click', () => setWeatherMode(b.dataset.v));
+syncAtmoButtons();
+actions.KeyT = () => setTimeMode(TIME_MODES[(TIME_MODES.indexOf(atmo.timeMode) + 1) % TIME_MODES.length]);
+actions.KeyY = () => setWeatherMode(WEATHER_MODES[(WEATHER_MODES.indexOf(atmo.weatherMode) + 1) % WEATHER_MODES.length]);
+
 actions.KeyN = () => {
   siren.on = !siren.on;
   try { localStorage.setItem('openworld.sound', siren.on ? 'on' : 'off'); } catch { /* storage unavailable */ }
@@ -743,9 +713,9 @@ function loop(now) {
     const v = player.vehicle;
     if (v) { const [fx, fz] = v.fwd; chunks.update(p.x + fx * v.speed * 3, p.z + fz * v.speed * 3); }
     else chunks.update(p.x, p.z);
-    sun.target.position.set(p.x, p.y, p.z);
-    sun.position.copy(sun.target.position).addScaledVector(SUN_DIR, 150);
-    sky.position.copy(camera.position);
+    atmo.follow(p);
+    atmo.sky.position.copy(camera.position);
+    atmo.update(dt, { camera, world, player, traffic, time: now / 1000 });
     // Keep the background ground just below the lowest nearby terrain, so on a hilltop it doesn't
     // hover over the valley.
     farT -= dt;
@@ -780,6 +750,7 @@ function loop(now) {
       const street = loc.street ? `<b>${escapeHtml(loc.street)}</b>${loc.cross ? ` &amp; ${escapeHtml(loc.cross)}` : ''}` : '<b>Exploring</b>';
       $('where').innerHTML = `${street}${loc.area ? `<span>${escapeHtml(loc.area)}</span>` : ''}`;
       updateDriveHint();
+      $('conditions').textContent = atmo.label;
       const near = labels.nearest(p.x, p.z, 9);
       const changed = near && near.id !== cardId;
       if (changed) {
@@ -821,6 +792,8 @@ window.game = {
   vehicles,
   get traffic() { return traffic; },
   get police() { return police; },
+  atmo,
+  scene,
   get profile() { return profile; },
   mp,
   character,

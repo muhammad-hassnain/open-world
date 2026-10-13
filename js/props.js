@@ -185,6 +185,7 @@ export function buildFurniture(world, chunk, spots, group) {
   const mapped = chunk.props.filter((p) => p.k === 'lamp');
   const lamps = (mapped.length >= 6 ? mapped : spots.lamps).map((p) => ({ x: p.x, z: p.z, y: world.groundAt(p.x, p.z) }));
   for (const l of lamps) chunk.addCircleCollider(l.x, l.z, 0.15);
+  chunk.lamps = lamps;  // night lights (atmosphere.js)
   if (lamps.length) {
     group.add(instanced(A.geo.lamp, A.vc, lamps));
     group.add(instanced(A.geo.lampHead, A.lampHead, lamps, { cast: false }));
@@ -272,6 +273,9 @@ export function buildParkedCars(world, chunk, spots, group) {
   }
   return items;
 }
+
+// Street lamp heads glow brighter at night (atmosphere.js).
+export function setLampGlow(k) { assets().lampHead.emissiveIntensity = 0.35 + k * 5; }
 
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 // Someone got into this parked car: hide it and remove its collider (it comes back when its

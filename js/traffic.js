@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { nodeKey, signalState } from './world.js';
-import { CAR_TYPES, carsLoaded, parkedCarMesh } from './vehicles.js';
+import { CAR_TYPES, carsLoaded, parkedCarMesh, parkedCarLights } from './vehicles.js';
 import { clamp, damp, angleDelta, rng } from './util.js';
 
 const COUNT = 20;              // cars around the player
@@ -28,6 +28,8 @@ export class Traffic {
     this.time = 0;
     this.spawnT = 0;
     this.patrols = 2;          // police cars among the traffic (police.js turns this off in a chase)
+    this.lightsOn = false;     // headlights at night (atmosphere.js)
+    this.lightMeshes = new Map();  // car type -> [head, tail] InstancedMeshes
     this.R = rng(12345);
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._p = new THREE.Vector3(); this._s = new THREE.Vector3(1, 1, 1);
     this._e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -41,6 +43,8 @@ export class Traffic {
     this.world.obstacles.delete(this);
     for (const m of this.meshes.values()) { this.scene.remove(m); m.dispose(); }
     this.meshes.clear();
+    for (const pair of this.lightMeshes.values()) for (const m of pair) { this.scene.remove(m); m.dispose(); }
+    this.lightMeshes.clear();
     this.cars = [];
   }
 
@@ -287,6 +291,21 @@ export class Traffic {
       }
       mesh.count = n;
       mesh.instanceMatrix.needsUpdate = true;
+      // Headlights and taillights follow the same matrices (shown at night).
+      let lights = this.lightMeshes.get(type);
+      if (!lights) {
+        const L = parkedCarLights(type);
+        lights = [new THREE.InstancedMesh(L.head, L.headMat, 48), new THREE.InstancedMesh(L.tail, L.tailMat, 48)];
+        for (const m of lights) { m.frustumCulled = false; this.scene.add(m); }
+        this.lightMeshes.set(type, lights);
+      }
+      for (const m of lights) {
+        m.visible = this.lightsOn;
+        if (!this.lightsOn) continue;
+        for (let i = 0; i < n; i++) { mesh.getMatrixAt(i, this._m); m.setMatrixAt(i, this._m); }
+        m.count = n;
+        m.instanceMatrix.needsUpdate = true;
+      }
     }
   }
 }

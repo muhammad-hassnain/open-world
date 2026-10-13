@@ -231,6 +231,22 @@ car is impounded); you escape when no unit has seen you, and none is within 70 m
 cooldown (10 s + 3 s per heat level). The siren is a Web Audio oscillator whose volume follows
 the nearest unit. All of it is local to the player.
 
+## Time of day and weather (`atmosphere.js`)
+
+The sun's elevation and azimuth come from the walk-in latitude/longitude and the current time
+(a short solar-position formula); the light, sky and fog follow it, so it's day, sunset or
+night as it really is there. Every 15 minutes the current weather is fetched from Open-Meteo
+(free, no key) and its WMO weather code and cloud cover become amounts of cloud, rain, snow and
+fog (and storms), eased in over a few seconds. The sky is one shader: a gradient by sun
+elevation, a warm horizon band toward the sun at sunset, the sun disc and halo, procedural
+clouds lit orange near sunset, and stars at night. Rain streaks and snowflakes are a few
+thousand particles moved on the GPU in a box around the camera; wet weather makes paved
+materials darker and glossier, snow whitens the ground. At night windows light up (a hash per
+window cell in the glass shader), lamp heads glow, a fixed set of point lights moves to the
+nearest street lamps, cars show head- and taillights and the player's car gets a headlight.
+The reflection map is rebaked from the sky when it changes. Players can fix the time (day,
+sunset, night) or weather (clear, rain, snow, fog) instead of live.
+
 ## Player, camera and HUD
 
 - Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, sprint 9 m/s, jump), collision via

@@ -42,6 +42,10 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Traffic**: about 20 cars drive the streets around you, keep their distance, slow down at
   junctions and stop at traffic lights, which cycle where OpenStreetMap maps them (or where
   main roads cross).
+- **Real time and weather**: the sun is where it really is at that place and time (sunsets,
+  starry nights with lit windows, street lamps and headlights), and the weather is live from
+  Open-Meteo: clouds, rain on wet streets, snow, fog and thunderstorms. `T` and `Y` (or About)
+  switch to a fixed time of day or weather.
 - **Police chases**: patrol cars notice speeding, red lights, crashes and driving on sidewalks or
   through parks. Escape them and the heat rises: more units, police SUVs, then interceptors and
   roadblocks. Get boxed in and you're busted (your car is impounded); stay out of sight until the
@@ -95,6 +99,8 @@ the address bar keeps your current position so you can share it.
 | Get in or out (also any parked or passing car) | `F` |
 | Drive / brake | `W` `A` `S` `D` / `Space` |
 | Sound on / off | `N` |
+| Time of day: live / day / sunset / night | `T` |
+| Weather: live / clear / rain / snow / fog | `Y` |
 | Map of where you are (pick a spot to walk to) | `M` |
 | Fly out to the globe | `G` |
 | Respawn where you walked in | `R` |
@@ -148,6 +154,7 @@ js/profile.js           The player's name and character, kept on the device
 js/vehicles.js          Cars (CC0 models) and bikes: arcade driving, collisions, the rider
 js/traffic.js           Traffic cars following the streets, and traffic lights
 js/police.js            Police: crimes, wanted level, chases, roadblocks, busted/escaped, siren
+js/atmosphere.js        Sun position, sky, clouds, live weather (Open-Meteo), rain/snow, night lights
 js/multiplayer.js       Other players: connection to the relay, their characters and name tags
 js/player.js            Movement, collision response, third-person camera
 js/touch.js             Touch controls: fixed joystick with sprint lock, look, pinch zoom, Jump
@@ -207,6 +214,7 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
 - Place photos from [Wikimedia Commons](https://commons.wikimedia.org), each under its own
   license with its author credited in the game; places are matched through
   [Wikidata](https://www.wikidata.org) (CC0).
+- Weather data by [Open-Meteo.com](https://open-meteo.com) (CC BY 4.0).
 - Rendering by [three.js](https://threejs.org) (MIT) and [MapLibre GL JS](https://maplibre.org)
   (BSD), loaded from unpkg.
 - Code is released under the [MIT License](LICENSE).
