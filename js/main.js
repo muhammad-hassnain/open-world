@@ -6,6 +6,7 @@ import { GROUND_COLOR } from './streets.js';
 import { ChunkManager } from './chunks.js';
 import { Character } from './character.js';
 import { loadProfile, saveProfile, NAME_MAX } from './profile.js';
+import { Multiplayer } from './multiplayer.js';
 import { Player, RUN, SPRINT } from './player.js';
 import { Labels, CATS, escapeHtml } from './labels.js';
 import { MiniMap } from './minimap.js';
@@ -103,6 +104,33 @@ const materials = makeMaterials(renderer);
 const minimap = new MiniMap($('minimap'));
 const profile = loadProfile();
 const character = new Character(profile.look);
+const mp = new Multiplayer({ scene, camera, tags: $('tags'), onChange: showOnline });
+mp.setProfile(profile.name, profile.look);
+// Online unless the player chose to hide, or this place is where they really are (then they
+// start hidden until they go online themselves). Tests stay offline unless given ?relay=.
+const HIDE_KEY = 'openworld.hidden';
+let atOwnLocation = false;
+function wantOnline() {
+  let hidden = false;
+  try { hidden = localStorage.getItem(HIDE_KEY) === '1'; } catch { /* storage unavailable */ }
+  return !hidden && !atOwnLocation && (!TEST || params.has('relay'));
+}
+function setVisible(on) {
+  try { if (on) localStorage.removeItem(HIDE_KEY); else localStorage.setItem(HIDE_KEY, '1'); } catch { /* storage unavailable */ }
+  if (on) atOwnLocation = false;
+  mp.setOnline(on);
+  flash(on ? 'Online: other players can see you' : 'Hidden: other players can\'t see you');
+}
+function showOnline(status, count) {
+  const el = $('online'), short = touch.enabled;
+  el.classList.toggle('on', status === 'online');
+  el.querySelector('.label').textContent = {
+    off: short ? 'Off' : 'Hidden',
+    connecting: short ? '…' : 'Connecting…',
+    offline: short ? '!' : 'Offline, retrying',
+    online: short ? String(count) : `Online · ${count ? `${count} nearby` : 'nobody nearby'}`,
+  }[status];
+}
 character.root.visible = false;
 scene.add(character.root);
 
@@ -186,6 +214,7 @@ async function enterStreet(lat, lon, bearing = 0) {
   frame = new Frame(lat, lon);
   const terrain = new Terrain(frame);
   world = new World(frame, terrain);
+  mp.setWorld(frame, world);
   labels = new Labels(world, scene, camera, $('tags'));
   labels.onChange = setLabelButtons;
   setLabelButtons(labels.mode);
@@ -205,7 +234,7 @@ async function enterStreet(lat, lon, bearing = 0) {
   placeName(lat, lon).then((n) => { if (token === session) world.placeName = n; }).catch(() => {});
   setMode('street');
   if (!profile.saved && !TEST) openProfile();
-  else startOrPause();
+  else { startOrPause(); mp.setOnline(wantOnline()); }
   window.game.ready = true;
 }
 
@@ -451,6 +480,8 @@ function openProfile() {
 function closeProfile() {
   profile.name = $('profile-name').value;
   saveProfile(profile);
+  mp.setProfile(profile.name, profile.look);
+  if (mode === 'street' && !mp.wanted) mp.setOnline(wantOnline());
   $('profile').classList.add('hidden');
   $('profile-name').blur();
   if (mode === 'street') startOrPause();
@@ -483,6 +514,9 @@ actions.KeyR = () => { if (player && spawn) { player.spawn(spawn.x, spawn.z, spa
 actions.KeyM = () => openGlobe('map');
 actions.KeyP = openPhotos;
 actions.KeyI = openAbout;
+actions.KeyO = () => setVisible(!mp.wanted);
+$('online').addEventListener('click', () => setVisible(!mp.wanted));
+showOnline(mp.status, 0);
 actions.KeyG = () => openGlobe('globe');
 
 // ---------- loop ----------
@@ -538,6 +572,7 @@ function loop(now) {
     farGround.position.x = p.x;
     farGround.position.z = p.z;
     labels.update(dt, p.x, p.z);
+    mp.update(dt, player);
 
     hudT -= dt;
     if (hudT <= 0) {
@@ -558,7 +593,7 @@ function loop(now) {
       $('card').classList.toggle('show', !!near);
     }
     miniT -= dt;
-    if (miniT <= 0) { miniT = 0.05; minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items); }
+    if (miniT <= 0) { miniT = 0.05; minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions()); }
     hashT -= dt;
     if (hashT <= 0 && !TEST) {
       hashT = 2;
@@ -584,6 +619,7 @@ window.game = {
   openGlobe, enterStreet,
   get spawn() { return spawn; },
   get profile() { return profile; },
+  mp,
   character,
   get globe() { return globe; },
   ready: false,
@@ -616,7 +652,7 @@ if (params.has('globe')) {
   $('search').addEventListener('submit', () => { wandered = true; });
   myLocation().then((pos) => {
     if (wandered || mode !== 'globe' || player) return;
-    if (pos) enterStreet(pos.lat, pos.lon);
+    if (pos) { atOwnLocation = true; enterStreet(pos.lat, pos.lon); }
     else g.ready.then(() => g.flyTo({ lat: START.lat, lon: START.lon, zoom: 16.8, pitch: 45, duration: 6000 }));
   });
 }

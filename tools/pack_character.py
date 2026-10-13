@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Pack a character .gltf (embedded buffer) into a compact .glb for the game.
 
-Keeps only the animations the game uses and drops the data nothing references anymore.
-Standard library only.
+Keeps only the animations the game uses, removes weapons and other props some characters hold,
+and drops the data nothing references anymore. Standard library only.
 
     python3 tools/pack_character.py Suit.gltf assets/characters/man.glb
-    python3 tools/pack_character.py Suit.gltf out.glb --keep Idle Walk Run Wave
+    python3 tools/pack_character.py Suit.gltf out.glb --keep Idle Walk Run Wave --drop 'Pistol|Hat'
 
 The characters in assets/characters/ come from Quaternius' "Ultimate Modular Men" and
 "Ultimate Modular Women" packs (CC0, https://quaternius.com).
@@ -13,9 +13,12 @@ The characters in assets/characters/ come from Quaternius' "Ultimate Modular Men
 import argparse
 import base64
 import json
+import re
 import struct
 
 KEEP = ['Idle', 'Walk', 'Run', 'Wave']
+# Nodes to remove (by name): no weapons in the game.
+DROP = r'(?<![a-z])(pistol|gun|rifle|revolver|shotgun|sword|knife|dagger|axe|spear|bow|arrow|shield|weapon|grenade|bat)(?![a-z])'
 
 
 def load(path):
@@ -27,6 +30,51 @@ def load(path):
             raise SystemExit('only embedded (data:) buffers are supported')
         buffers.append(base64.b64decode(uri.split(',', 1)[1]))
     return g, buffers
+
+
+def drop_nodes(g, pattern):
+    """Remove every node whose name matches pattern (weapons and other props), with its subtree,
+    then the meshes, skins and animation channels nothing uses anymore."""
+    hit = {i for i, n in enumerate(g['nodes']) if pattern.search(n.get('name', ''))}
+    if not hit:
+        return []
+    names = sorted(g['nodes'][i].get('name', str(i)) for i in hit)
+    gone, stack = set(), list(hit)
+    while stack:
+        i = stack.pop()
+        if i not in gone:
+            gone.add(i)
+            stack.extend(g['nodes'][i].get('children', []))
+    joints = {j for s in g.get('skins', []) for j in s['joints']}
+    if gone & joints:
+        raise SystemExit('refusing to remove skeleton joints: ' + ', '.join(g['nodes'][i]['name'] for i in gone & joints))
+
+    keep = [i for i in range(len(g['nodes'])) if i not in gone]
+    nmap = {old: new for new, old in enumerate(keep)}
+    g['nodes'] = [g['nodes'][i] for i in keep]
+    for n in g['nodes']:
+        if 'children' in n:
+            n['children'] = [nmap[c] for c in n['children'] if c in nmap]
+            if not n['children']:
+                del n['children']
+    for sc in g.get('scenes', []):
+        sc['nodes'] = [nmap[c] for c in sc['nodes'] if c in nmap]
+    for s in g.get('skins', []):
+        s['joints'] = [nmap[j] for j in s['joints']]
+        if 'skeleton' in s:
+            s['skeleton'] = nmap[s['skeleton']]
+    for a in g.get('animations', []):
+        a['channels'] = [c for c in a['channels'] if c['target'].get('node') in nmap]
+        for c in a['channels']:
+            c['target']['node'] = nmap[c['target']['node']]
+
+    used = sorted({n['mesh'] for n in g['nodes'] if 'mesh' in n})
+    mmap = {old: new for new, old in enumerate(used)}
+    g['meshes'] = [g['meshes'][i] for i in used]
+    for n in g['nodes']:
+        if 'mesh' in n:
+            n['mesh'] = mmap[n['mesh']]
+    return names
 
 
 def pack(g, buffers, keep):
@@ -107,8 +155,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('src'); ap.add_argument('dst')
     ap.add_argument('--keep', nargs='+', default=KEEP, help='animation names to keep')
+    ap.add_argument('--drop', default=DROP, help='regular expression for node names to remove')
     a = ap.parse_args()
     g, buffers = load(a.src)
+    dropped = drop_nodes(g, re.compile(a.drop, re.I))
+    if dropped:
+        print('removed:', ', '.join(dropped))
     g, blob = pack(g, buffers, set(a.keep))
     size = write_glb(a.dst, g, blob)
     print(f'{a.dst}: {size / 1024:.0f} KB, animations: {", ".join(x["name"] for x in g["animations"])}')

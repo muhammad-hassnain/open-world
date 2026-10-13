@@ -176,6 +176,19 @@ the speed actually moved, plays them at the rate that keeps the feet from slidin
 stride in the air and leans forward when sprinting. Until a model has loaded, a small
 procedural figure stands in, so walking in never waits for it.
 
+## Multiplayer (`multiplayer.js`, `relay/`)
+
+Players connect with a WebSocket to the relay, a Cloudflare Worker whose `Room` Durable Object
+(one per zoom-6 map tile, about 600 km) forwards each player's messages to the others in the
+room within 2 km. Positions travel as latitude/longitude, so they line up even though every
+player's world has its own frame. A player sends `{ name, look }` once and then their state
+(lat, lon, yaw, speed, height above ground) up to 5 times a second while moving and every 2 s
+when still; newcomers get the states of everyone nearby right away. Others are drawn as
+`Character`s gliding toward their latest position, animated by the speed they report, with a
+name tag above the head, and appear as blue dots on the minimap; anyone silent for 6 s is
+removed. The relay keeps nothing but the live connections, limits each player to 12 messages a
+second, and cleans names. Hidden players don't connect at all.
+
 ## Player, camera and HUD
 
 - Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, sprint 9 m/s, jump), collision via

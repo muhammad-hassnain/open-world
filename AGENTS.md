@@ -72,6 +72,8 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/buildings.js` | `styleOf`, `layout` (floors/heights), walls (skipping chunk seams), roofs, facades, awnings; lite mode |
 | `js/props.js` | Shared, instanced trees, lamps, benches, bike racks, hydrants, bins, parked cars |
 | `js/labels.js` | Per-chunk place items, sign placement, street-sign corners, floating tags, lazy 3D signs |
+| `js/multiplayer.js` | `Multiplayer`: WebSocket to the relay (room per zoom-6 tile), sends own state as lat/lon at ≤5 Hz (heartbeat 2 s), draws other players as `Character`s with name tags; `setOnline`, `setProfile`, `positions()` |
+| `relay/src/index.js` | The relay: `Room` Durable Object per region forwarding each player's state to players within 2 km; rate limits, cleans names |
 | `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
 | `js/character.js` | `Character(look)`: 3D person from `LOOKS` (glTF in `assets/characters/`) with idle/walk/run blended by speed; a procedural figure stands in until it loads; `setLook()` |
@@ -82,7 +84,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `tools/build_detail.py` | Overpass → `data/detail/<z>/<x>/<y>.json` for tiles in `DETAIL_TILES` |
 | `tools/fetch_textures.py` | Downloads the CC0 textures into `assets/textures/` and writes `CREDITS.md` |
 | `tools/screenshot.py` | Headless screenshots (Playwright) |
-| `tools/pack_character.py` | Character `.gltf` → compact `.glb` keeping only the animations the game uses |
+| `tools/pack_character.py` | Character `.gltf` → compact `.glb` keeping only the animations the game uses and removing weapons (no weapons in the game) |
 
 More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](docs/DATA.md).
 
@@ -92,7 +94,9 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
   (`5.24.0`) are pinned in `index.html`. If you upgrade three.js, re-check lighting and the sky shader.
 - **Static site.** Everything must work from plain files (it is meant to be deployable to static
   hosting). Don't add server-side logic; `serve.py` stays a file server using only the
-  standard library on Python 3.9+.
+  standard library on Python 3.9+. The one exception is the multiplayer relay in `relay/`
+  (Cloudflare Worker + Durable Object, deployed separately with `npx wrangler deploy`); it only
+  forwards messages between players, stores nothing, and the game works without it.
 - **Build for anywhere, not just Davis.** Derive behavior from OSM data and geometry. Both data
   sources (vector tiles and detail files) must keep working; anything that only exists in
   detail data (sidewalk tags, opening hours, trees) needs a fallback for vector tiles.
@@ -187,6 +191,9 @@ in detail data.
   Service, which rate-limits hard. Every photo shown must carry its author and license.
 - The start-at-your-location prompt (geolocation) only exists on https and localhost, so it
   never appears over a plain-http Tailscale address.
+- Multiplayer privacy: a player who started at their own (geolocated) position starts hidden;
+  "hide me" is remembered in localStorage (`openworld.hidden`). Tests (`?test`) stay offline
+  unless `?relay=` is given. Test with two browser contexts against `npx wrangler dev`.
 - Nominatim allows about one request per second; search only runs on submit and reverse
   geocoding once per walk-in.
 - Pointer lock may be refused; the game then falls back to click-and-drag to look.

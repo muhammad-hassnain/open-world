@@ -58,7 +58,8 @@ export class MiniMap {
   removeChunk(key) { this.chunks.delete(key); }
   clear() { this.chunks.clear(); }
 
-  draw(px, pz, camYaw, yaw, places) {
+  // players: other players nearby, [{ x, z }].
+  draw(px, pz, camYaw, yaw, places, players = []) {
     const cv = this.canvas, ctx = cv.getContext('2d');
     const W = cv.width, R = W / 2;
     const k = R / VIEW_RADIUS; // screen px per meter
@@ -78,6 +79,12 @@ export class MiniMap {
       if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
       ctx.fillStyle = (CATS[it.cat] || CATS.service).color;
       ctx.beginPath(); ctx.arc(dx * k, dz * k, 2.6 * (W / 170), 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = '#2f7fc1'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    for (const o of players) {
+      const dx = o.x - px, dz = o.z - pz;
+      if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
+      ctx.beginPath(); ctx.arc(dx * k, dz * k, 4.5 * (W / 170), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
     ctx.restore();
     arrow(ctx, R, R, camYaw - yaw, 9 * (W / 170));

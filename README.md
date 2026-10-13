@@ -34,6 +34,8 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
   stucco, brick, concrete, corrugated metal; shingle, clay-tile and gravel roofs), gable and hip
   roofs, porches, shutters, balconies, storefronts and awnings, varied building by building.
 - **Real roof colors in the US**: each roof's color is measured from USGS aerial photos.
+- **Other players**: everyone online nearby shows up with their name and character, live. You
+  start hidden if you began at your own location; `O` (or the Online button) shows or hides you.
 - **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars.
 - **Real places in any language**: shop, restaurant and building names as floating tags or
   physical signs (`L` switches), an info card when you walk up to a place, and a live
@@ -76,6 +78,7 @@ the address bar keeps your current position so you can share it.
 | Labels: tags → signs → off | `L` |
 | Photos of the place you're at | `P` |
 | About, credits and the GitHub link | `I` (also on the pause screen and the globe) |
+| Show or hide yourself to other players | `O` (or the Online button) |
 | Map of where you are (pick a spot to walk to) | `M` |
 | Fly out to the globe | `G` |
 | Respawn where you walked in | `R` |
@@ -98,7 +101,8 @@ Globe (MapLibre + OpenFreeMap) ──"Walk here"──▶ street world at that p
  Terrain Tiles (elevation PNGs) ──────────────────▶ everything is draped on the ground
 ```
 
-Everything runs in the browser; `serve.py` is a plain file server. See
+Everything runs in the browser; `serve.py` is a plain file server. The only server-side piece
+is the small multiplayer relay in `relay/`, which passes positions between players. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details and [docs/DATA.md](docs/DATA.md) for
 the data formats.
 
@@ -125,6 +129,7 @@ js/photos.js            Photos of places from Wikimedia Commons (matched through
 js/minimap.js           Rotating minimap from per-chunk canvases
 js/character.js         The player's character (3D models with animations) and its fallback figure
 js/profile.js           The player's name and character, kept on the device
+js/multiplayer.js       Other players: connection to the relay, their characters and name tags
 js/player.js            Movement, collision response, third-person camera
 js/touch.js             Touch controls: fixed joystick with sprint lock, look, pinch zoom, Jump
 js/util.js              Geometry helpers, spatial hash, mesh builder, time slicing
@@ -132,6 +137,7 @@ data/detail/            Pre-built detailed tiles (downtown Davis)
 assets/textures/        CC0 material textures (see CREDITS.md there)
 assets/characters/      CC0 character models (see CREDITS.md there)
 serve.py                Static file server (Python standard library only)
+relay/                  Multiplayer relay (Cloudflare Worker + Durable Objects), deployed separately
 tools/build_detail.py   Build detailed tiles from OpenStreetMap (Overpass API)
 tools/fetch_textures.py Download and prepare the material textures
 tools/pack_character.py Pack a character .gltf into a compact .glb with the animations the game uses
@@ -146,6 +152,10 @@ import the repository with **Framework Preset: Other** and **Root Directory: the
 root** (Vercel may suggest Python and `tools/` because of the scripts there; don't accept that).
 `vercel.json` sets cache headers for textures and map data. Every push to `main` redeploys.
 Live: <https://open-world-sigma-two.vercel.app>.
+
+The multiplayer relay runs on Cloudflare (Workers free plan): `cd relay && npx wrangler deploy`.
+To test multiplayer locally, run `npx wrangler dev` in `relay/` and open the game with
+`?relay=ws://localhost:8787`.
 
 ## Adding a detailed area
 
