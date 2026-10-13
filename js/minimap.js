@@ -100,6 +100,16 @@ export class MiniMap {
     const blink = Math.floor(performance.now() / 250) % 2;
     for (const o of police) {
       const dx = o.x - px, dz = o.z - pz;
+      if (o.gas) {  // gas station: repair and respray
+        if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
+        const r = 6 * (W / 170);
+        ctx.fillStyle = '#1f9d55'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * (W / 170);
+        ctx.beginPath(); ctx.arc(dx * k, dz * k, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.save(); ctx.translate(dx * k, dz * k); ctx.rotate(-camYaw);
+        ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(r * 1.3)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('G', 0, 0.5); ctx.restore();
+        continue;
+      }
       if (Math.abs(dx) > reach + o.r || Math.abs(dz) > reach + o.r) continue;
       ctx.beginPath(); ctx.arc(dx * k, dz * k, o.r * k, 0, Math.PI * 2);
       ctx.fillStyle = o.chase ? (blink ? 'rgba(230,40,40,0.16)' : 'rgba(40,90,230,0.16)') : 'rgba(40,90,230,0.10)';
@@ -109,7 +119,7 @@ export class MiniMap {
     }
     for (const o of police) {
       const dx = o.x - px, dz = o.z - pz;
-      if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
+      if (o.gas || Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
       ctx.fillStyle = o.chase ? (blink ? '#e02828' : '#2850e0') : '#2850e0';
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * (W / 170);
       const sz = 4 * (W / 170);

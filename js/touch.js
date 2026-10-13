@@ -43,6 +43,12 @@ export class TouchControls {
     window.addEventListener('resize', () => this._drawStick());
     ui.jump.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.jump = true; this.jumpHeld = true; });
     for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) ui.jump.addEventListener(ev, () => { this.jumpHeld = false; });
+    // Nitrous while driving.
+    this.boostHeld = false;
+    if (ui.boost) {
+      ui.boost.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.boostHeld = true; });
+      for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) ui.boost.addEventListener(ev, () => { this.boostHeld = false; });
+    }
     for (const b of ui.sideButtons) b.addEventListener('click', () => this.setSide(b.dataset.side));
   }
 
@@ -65,7 +71,7 @@ export class TouchControls {
 
   // Input for this frame; look, zoom and jump are consumed.
   read() {
-    const out = { fwd: 0, right: 0, gait: 0, lookX: this.lookX, lookY: this.lookY, zoom: this.zoom, jump: this.jump, brake: this.jumpHeld };
+    const out = { fwd: 0, right: 0, gait: 0, lookX: this.lookX, lookY: this.lookY, zoom: this.zoom, jump: this.jump, brake: this.jumpHeld, boost: this.boostHeld };
     this.lookX = 0; this.lookY = 0; this.zoom = 0; this.jump = false;
     const s = this.stick;
     if (s && s.auto) {

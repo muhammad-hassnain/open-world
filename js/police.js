@@ -5,6 +5,7 @@
 // outside every circle (or out of their line of sight) the cooldown runs, and each time it fills
 // you lose a star, until you escape. Chasing units follow the streets (A* over the road graph) and drive straight at you once
 // they see you. Everything here is local to this player.
+import * as THREE from 'three';
 import { Vehicle, carsLoaded } from './vehicles.js';
 import { nodeKey, signalState } from './world.js';
 import { clamp, angleDelta } from './util.js';
@@ -16,13 +17,19 @@ const HEAT_AT = [0, 0, 60, 150, 270, 420];   // seconds of chase for heat 1..5
 const UNITS = [0, 2, 3, 4, 5, 6];
 const BUST_TIME = 3.5, BUST_R = 9;
 const cooldownFor = (heat) => 8 + heat * 2;  // seconds out of sight to drop one star
-const SEEN_CLOSE = 35;                  // m: this close, they hear and see you around corners
+const SEEN_CLOSE = 35;
+const UNIT_HP = 100;                    // ramming damage is about 3.5 per m/s of closing speed
+const SPIKE_EVERY = 26;
+const ACTIVE = (u) => u.mode === 'chase' || u.mode === 'block';  // not leaving or wrecked                 // s between spike strips at heat 3+                  // m: this close, they hear and see you around corners
 const UNIT_TYPES = [null, ['police'], ['police'], ['police-suv', 'police'], ['interceptor', 'police-suv'], ['interceptor']];
 
 export class Police {
   // hud: { box, stars, time, units, meter, label, banner } elements; onBusted() when caught.
-  constructor({ scene, world, traffic, hud, siren, onBusted, onCrime }) {
-    Object.assign(this, { scene, world, traffic, hud, onBusted, onCrime });
+  // onTakedown(unit), onSpiked(), onEscape(heat): for the arcade layer (arcade.js).
+  constructor({ scene, world, traffic, hud, siren, onBusted, onCrime, onTakedown, onSpiked, onEscape }) {
+    Object.assign(this, { scene, world, traffic, hud, onBusted, onCrime, onTakedown, onSpiked, onEscape });
+    this.spikes = [];         // spike strips across roads: { x, z, tx, tz, hw, mesh, t }
+    this.spikeT = SPIKE_EVERY / 2;
     this.units = [];          // { v: Vehicle, mode: 'chase' | 'block' | 'leave', path, pathT, stuckT, backT, t }
     this.heat = 0;
     this.wanted = false;
@@ -38,6 +45,8 @@ export class Police {
   }
 
   dispose() {
+    for (const sp of this.spikes) this._removeSpikes(sp);
+    this.spikes = [];
     for (const u of this.units) this._remove(u);
     this.units = [];
     this.siren.set(0);
@@ -58,7 +67,10 @@ export class Police {
       this._sight(dt, player);
       this._busted(dt, player);
       this._roadblocks(dt, player);
+      this._spikeStrips(dt, player);
     }
+    this._damage(dt, player);
+    this._checkSpikes(dt, player);
     for (const u of [...this.units]) this._drive(u, dt, player, t);
     this._siren(player);
     this._hud();
@@ -202,7 +214,7 @@ export class Police {
     if (this.losT > 0) return;
     this.losT = 0.2;
     const p = player.pos;
-    const sees = this.units.some((u) => u.mode !== 'leave'
+    const sees = this.units.some((u) => ACTIVE(u)
       && (Math.hypot(u.v.x - p.x, u.v.z - p.z) < SEEN_CLOSE || this._los(u.v.x, u.v.z, p.x, p.z, CHASE_SIGHT)));
     if (sees) { this.seen = { x: p.x, z: p.z }; this.cool = 0; return; }
     // Out of every unit's sight: the cooldown fills, and each time it does you lose a star.
@@ -218,7 +230,7 @@ export class Police {
   _busted(dt, player) {
     const v = player.vehicle, p = player.pos;
     const slow = !v || Math.abs(v.speed) < 2.5;
-    const close = this.units.some((u) => u.mode !== 'leave' && Math.hypot(u.v.x - p.x, u.v.z - p.z) < BUST_R);
+    const close = this.units.some((u) => ACTIVE(u) && Math.hypot(u.v.x - p.x, u.v.z - p.z) < BUST_R);
     if (slow && close) this.bust += dt;
     else this.bust = Math.max(0, this.bust - dt * 1.5);
     if (this.bust >= BUST_TIME) {
@@ -227,7 +239,18 @@ export class Police {
     }
   }
 
+  // Lose n stars at once (a repair out of sight); at no stars left you've escaped.
+  lose(n) {
+    if (!this.wanted) return;
+    if (this.heat - n <= 0) { this._end('ESCAPED'); return; }
+    this.heat -= n;
+    this.chase = HEAT_AT[this.heat];
+    this.cool = 0.01;
+    this._flash(`Heat ${this.heat}`);
+  }
+
   _end(result) {
+    if (result === 'ESCAPED' && this.onEscape) this.onEscape(this.heat);
     this.wanted = false; this.heat = 0; this.chase = 0; this.cool = 0; this.bust = 0;
     for (const u of this.units) u.mode = 'leave';
     this._banner(result);
@@ -289,6 +312,10 @@ export class Police {
   _drive(u, dt, player, t) {
     const v = u.v, p = player.pos;
     u.t += dt;
+    if (u.mode === 'wreck') {
+      if (u.t > 18 || Math.hypot(v.x - p.x, v.z - p.z) > 400) this._remove(u);
+      return;
+    }
     const far = Math.hypot(v.x - p.x, v.z - p.z);
     if (u.mode === 'leave' && (far > 160 || u.t > 40)) { this._remove(u); return; }
     if (u.mode === 'block') {
@@ -350,9 +377,95 @@ export class Police {
   // Police for the minimap: chase units and patrol cars with the radius they see within.
   markers() {
     const out = [];
-    for (const u of this.units) if (u.mode !== 'leave') out.push({ x: u.v.x, z: u.v.z, r: CHASE_SIGHT, chase: true });
+    for (const u of this.units) if (u.mode === 'chase' || u.mode === 'block') out.push({ x: u.v.x, z: u.v.z, r: CHASE_SIGHT, chase: true });
     if (!this.wanted) for (const c of this.traffic.cars) if (c.type === 'police') out.push({ x: c.x, z: c.z, r: SIGHT, chase: false });
     return out;
+  }
+
+  // ---------- takedowns and spike strips ----------
+
+  // Units lose health when rammed by the player or crashing at speed; at zero they're wrecked.
+  _damage(dt, player) {
+    const pv = player.vehicle;
+    for (const u of this.units) {
+      if (u.mode === 'wreck' || u.mode === 'leave') continue;
+      const v = u.v;
+      u.hp ??= UNIT_HP;
+      u.hitCd = Math.max(0, (u.hitCd || 0) - dt);
+      let dmg = 0;
+      if (pv && pv.kind === 'car' && !u.hitCd) {
+        const dx = v.x - pv.x, dz = v.z - pv.z, d = Math.hypot(dx, dz);
+        if (d < 3.6) {
+          // Closing speed along the line between the cars.
+          const rvx = pv.fwd[0] * pv.speed - v.fwd[0] * v.speed, rvz = pv.fwd[1] * pv.speed - v.fwd[1] * v.speed;
+          const closing = (rvx * dx + rvz * dz) / (d || 1);
+          if (closing > 5) { dmg += closing * 3.5; u.hitCd = 0.6; }
+        }
+      }
+      if (v.hitNow > 12) dmg += (v.hitNow - 12) * 4;  // crashed into something on its own
+      v.hitNow = 0;
+      if (!dmg) continue;
+      u.hp -= dmg;
+      if (u.hp <= 0) this._wreck(u);
+    }
+  }
+
+  _wreck(u) {
+    const v = u.v;
+    u.mode = 'wreck'; u.t = 0;
+    v.speed = 0;
+    v.flash(false, 0);
+    v.respray('#3a3a3c');
+    v.tilt.rotation.set(0.08, 0, (Math.random() < 0.5 ? -1 : 1) * 0.35, 'XZY');
+    v.root.rotation.y += (Math.random() - 0.5) * 0.9;
+    if (this.onTakedown) this.onTakedown(u);
+  }
+
+  _spikeStrips(dt, player) {
+    if (this.heat < 3) return;
+    this.spikeT -= dt;
+    if (this.spikeT > 0) return;
+    this.spikeT = 3;
+    const v = player.vehicle;
+    if (!v || Math.abs(v.speed) < 10) return;
+    const spot = this._roadAhead(v, 150 + Math.random() * 80);
+    if (!spot) return;
+    this.spikeT = SPIKE_EVERY - this.heat * 2;
+    const { x, z, tx, tz, hw } = spot;
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 0.05, 0.55), SPIKE_MAT.base);
+    g.add(base);
+    for (let i = -hw + 0.2; i < hw; i += 0.45) {
+      const sp = new THREE.Mesh(SPIKE_GEO, SPIKE_MAT.spike);
+      sp.position.set(i, 0.1, 0);
+      g.add(sp);
+    }
+    const y = this.world.groundAt(x, z, this.world.elevation(x, z) + 8);
+    g.position.set(x, y + 0.03, z);
+    g.rotation.y = Math.atan2(tz, -tx) + Math.PI / 2;
+    this.scene.add(g);
+    this.spikes.push({ x, z, tx, tz, hw, mesh: g, t: 0 });
+    this._flash('Spike strip ahead!');
+  }
+
+  _checkSpikes(dt, player) {
+    const v = player.vehicle, p = player.pos;
+    for (const sp of [...this.spikes]) {
+      sp.t += dt;
+      if (sp.t > 45 || Math.hypot(sp.x - p.x, sp.z - p.z) > 450) { this._removeSpikes(sp); continue; }
+      if (!v || v.kind !== 'car' || v.flat) continue;
+      const along = (v.x - sp.x) * sp.tx + (v.z - sp.z) * sp.tz, lat = (v.x - sp.x) * -sp.tz + (v.z - sp.z) * sp.tx;
+      if (Math.abs(along) < 1.6 && Math.abs(lat) < sp.hw) {
+        v.flat = true;
+        if (this.onSpiked) this.onSpiked();
+      }
+    }
+  }
+
+  _removeSpikes(sp) {
+    this.scene.remove(sp.mesh);
+    sp.mesh.children[0].geometry.dispose();
+    this.spikes = this.spikes.filter((o) => o !== sp);
   }
 
   // ---------- sound and HUD ----------
@@ -371,7 +484,7 @@ export class Police {
     h.stars.textContent = '★'.repeat(this.heat) + '☆'.repeat(5 - this.heat);
     const s = Math.floor(this.chase);
     h.time.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    h.units.textContent = `${this.units.filter((u) => u.mode !== 'leave').length} units`;
+    h.units.textContent = `${this.units.filter(ACTIVE).length} units`;
     if (this.bust > 0.05) {
       h.label.textContent = 'BUSTED'; h.meter.style.width = `${(this.bust / BUST_TIME) * 100}%`; h.box.dataset.meter = 'bust';
     } else if (this.cool > 0.05) {
@@ -392,6 +505,12 @@ export class Police {
     this._bannerT = setTimeout(() => b.classList.remove('show'), 3000);
   }
 }
+
+const SPIKE_GEO = new THREE.ConeGeometry(0.05, 0.16, 4);
+const SPIKE_MAT = {
+  base: new THREE.MeshStandardMaterial({ color: '#2b2d30', roughness: 0.7 }),
+  spike: new THREE.MeshStandardMaterial({ color: '#c9ccd0', metalness: 0.8, roughness: 0.3 }),
+};
 
 // Throttle/steer toward (tx, tz): steer by the side the target is on, ease off for sharp turns,
 // reverse-turn when it's behind and close.

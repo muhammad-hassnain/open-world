@@ -262,6 +262,9 @@
   .tbtn:active { background: rgba(255,255,255,0.3); }
   #btn-jump { right: 22px; bottom: 58px; width: 74px; height: 74px; }
   body.stick-right #btn-jump { right: auto; left: 22px; }
+  #btn-boost { display: none; right: 108px; bottom: 40px; width: 62px; height: 62px; font-weight: 800; color: #6fd3ff; }
+  body.driving #btn-boost { display: block; }
+  body.stick-right #btn-boost { right: auto; left: 108px; }
   #vehicle-btns { position: absolute; right: 18px; bottom: 146px; z-index: 6; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
   body.stick-right #vehicle-btns { right: auto; left: 18px; align-items: flex-start; }
   @media (max-height: 500px) {  /* landscape phones: a row beside Jump instead of a stack */
@@ -277,6 +280,23 @@
     transition: opacity .15s; background: var(--panel); padding: 7px 14px; border-radius: 999px; font-size: 13px;
     pointer-events: none; white-space: nowrap; backdrop-filter: blur(6px); }
   #drive-hint.show { opacity: 1; }
+  #arcade { position: absolute; left: 14px; bottom: 96px; z-index: 6; display: none; pointer-events: none; width: 210px; }
+  #arcade.show { display: block; }
+  #arcade .sp { background: var(--panel); border-radius: 10px 10px 0 0; padding: 6px 12px 4px; }
+  #arcade .sp small { display: block; font: 700 9.5px system-ui; letter-spacing: 0.12em; color: var(--muted); }
+  #arcade .sp b { font: 800 22px system-ui; font-variant-numeric: tabular-nums; }
+  #arcade .nitro { height: 9px; background: rgba(18,22,28,0.72); border-radius: 0 0 10px 10px; padding: 0 12px 7px; }
+  #arcade .nitro i { display: block; height: 6px; width: 0; border-radius: 3px; background: linear-gradient(90deg, #2a7de8, #6fd3ff); transition: width .15s; }
+  #arcade.boost .nitro i { background: linear-gradient(90deg, #6fd3ff, #fff); box-shadow: 0 0 10px #6fd3ff; }
+  #arcade .flat-tag { display: none; margin-top: 6px; background: #b3412c; color: #fff; font: 800 11px system-ui; padding: 3px 8px; border-radius: 6px; width: fit-content; }
+  #arcade.flat .flat-tag { display: block; }
+  #sp-pops { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+  #sp-pops .pop { font: 800 14px system-ui; color: #ffd84a; text-shadow: 0 1px 3px rgba(0,0,0,0.8); animation: sp-pop 1.8s ease-out forwards; }
+  #sp-pops .pop.live { animation: none; color: #7fe3ff; }
+  #sp-pops .pop.live.done { animation: sp-pop 1.2s ease-out forwards; }
+  @keyframes sp-pop { 0% { transform: translateX(-8px); opacity: 0; } 10% { transform: none; opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+  body.driving #help { display: none; }
+  body.touch #arcade { bottom: auto; top: 150px; left: 12px; width: 170px; }
   #drive-hint b { font-size: 17px; }
   #drive-hint b.over { color: #ff5a4f; }
   #drive-hint { display: flex; align-items: center; gap: 4px; }
@@ -326,9 +346,12 @@
 <div id="touch-ui" class="street-ui">
   <div id="stick"><div id="stick-knob"></div></div>
   <button id="btn-jump" class="tbtn">Jump</button>
+  <button id="btn-boost" class="tbtn">N₂O</button>
   <div id="vehicle-btns"><button id="btn-use" class="hidden">Get in</button><button id="btn-car">Car</button><button id="btn-bike">Bike</button></div>
 </div>
 <div id="drive-hint" class="street-ui"></div>
+<div id="arcade" class="street-ui"><div class="sp"><small>SPEED POINTS</small><b id="sp-total">0</b></div>
+  <div class="nitro" title="Nitrous (Shift)"><i></i></div><div class="flat-tag">TIRES BLOWN</div><div id="sp-pops"></div></div>
 <div id="wanted" class="street-ui"><div class="stars"></div>
   <div class="row"><span id="wanted-time"></span><b id="wanted-label">PURSUIT</b><span id="wanted-units"></span></div>
   <div class="bar"><div class="fill"></div></div></div>

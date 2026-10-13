@@ -23,6 +23,7 @@ import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
 import { Navigator } from './navigate.js';
 import { RoadSigns } from './roadsigns.js';
+import { Arcade } from './arcade.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -44,7 +45,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 $('world').appendChild(renderer.domElement);
 const touch = new TouchControls(renderer.domElement, {
-  stick: $('stick'), knob: $('stick-knob'), jump: $('btn-jump'), sideButtons: document.querySelectorAll('#stick-side button'),
+  stick: $('stick'), knob: $('stick-knob'), jump: $('btn-jump'), boost: $('btn-boost'), sideButtons: document.querySelectorAll('#stick-side button'),
 });
 if (MOBILE) touch.enable();
 
@@ -104,6 +105,7 @@ let session = 0;
 let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null, police = null, far = null;
 let globe = null;
 let roadSigns = null;
+let arcade = null;
 const nav = new Navigator($('nav'));
 nav.onChange = (line) => { if (globe) globe.setRoute(line); };
 
@@ -195,6 +197,11 @@ async function enterStreet(lat, lon, bearing = 0) {
       label: $('wanted-label'), meter: $('wanted').querySelector('.fill'), banner: $('banner'), flash },
   });
   police.miles = milesThere;
+  arcade = new Arcade({ world, traffic, police, flash,
+    hud: { box: $('arcade'), points: $('sp-total'), nitro: $('arcade').querySelector('.nitro i'), pops: $('sp-pops') } });
+  police.onTakedown = (u) => arcade.takedown(u);
+  police.onEscape = (heat) => arcade.escaped(heat);
+  police.onSpiked = () => arcade.spiked();
   mp.setWorld(frame, world);
   labels = new Labels(world, scene, camera, $('tags'));
   labels.onChange = setLabelButtons;
@@ -651,7 +658,7 @@ function updateDriveHint() {
       over = Math.abs(v.speed) > lim.ms * 1.08;
       sign = milesThere ? `<span class="limit us"><small>SPEED<br>LIMIT</small>${lim.value}</span>` : `<span class="limit eu">${lim.value}</span>`;
     }
-    html = `${sign}${escapeHtml(v.spec.label)} &nbsp; <b class="${over ? 'over' : ''}">${speed}</b> ${miles ? 'mph' : 'km/h'}${touch.enabled ? '' : ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> brake'}`;
+    html = `${sign}${escapeHtml(v.spec.label)} &nbsp; <b class="${over ? 'over' : ''}">${speed}</b> ${miles ? 'mph' : 'km/h'}${touch.enabled ? '' : (v.kind === 'car' ? ' &nbsp; <kbd>Shift</kbd> nitrous' : '') + ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> brake'}`;
   } else if (player) {
     const r = vehicleInReach();
     if (r) {
@@ -744,16 +751,22 @@ function loop(now) {
       gait: Math.max(shift, tc.gait),
       jump: active && (jumpQueued || tc.jump),
       brake: active && (k('Space') || tc.brake),
+      boost: active && (k('ShiftLeft', 'ShiftRight') || tc.boost),
       lookX: mouseDX * MOUSE_SENS + tc.lookX + (active ? ((k('KeyE') ? 1 : 0) - (k('KeyQ') ? 1 : 0)) * 2.2 * dt : 0),
       lookY: mouseDY * MOUSE_SENS + tc.lookY,
       zoom: zoomAcc + tc.zoom,
     };
     mouseDX = 0; mouseDY = 0; zoomAcc = 0; jumpQueued = false;
 
-    player.update(dt, input);
+    // The crash cam slows the world down.
+    const sdt = dt * (arcade ? arcade.timeScale : 1);
+    player.update(sdt, input);
     const p = player.pos;
-    // Widen the view a little when sprinting.
-    const fov = FOV + 7 * Math.min(1, Math.max(0, (player.speed - RUN) / (SPRINT - RUN)));
+    // Widen the view when sprinting, and with speed and nitrous when driving.
+    const dv = player.vehicle;
+    const fov = dv
+      ? FOV + 12 * Math.min(1, Math.max(0, (Math.abs(dv.speed) - 15) / 30)) + (dv.boosting ? 9 : 0)
+      : FOV + 7 * Math.min(1, Math.max(0, (player.speed - RUN) / (SPRINT - RUN)));
     if (Math.abs(camera.fov - fov) > 0.05) {
       camera.fov += (fov - camera.fov) * (1 - Math.exp(-4 * dt));
       camera.updateProjectionMatrix();
@@ -787,8 +800,9 @@ function loop(now) {
     labels.update(dt, p.x, p.z);
     roadSigns.update(dt, p.x, p.z);
     mp.update(dt, player);
-    traffic.update(dt, player);
-    police.update(dt, player);
+    traffic.update(sdt, player);
+    police.update(sdt, player);
+    arcade.update(dt, player);
     if (player.vehicle) traffic.bump(player.vehicle.x, player.vehicle.z, 0);
     lightT -= dt;
     if (lightT <= 0) {
@@ -822,7 +836,7 @@ function loop(now) {
       // Zoom out when driving fast, and further in a chase to show the police's sight.
       const fast = player.vehicle ? Math.abs(player.vehicle.speed) : 0;
       const radius = police.wanted ? 280 : fast > 14 ? 90 + (Math.min(fast, 40) - 14) * 4 : 90;
-      minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions(), nav.line, police.markers(), radius);
+      minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions(), nav.line, [...police.markers(), ...arcade.markers()], radius);
     }
     hashT -= dt;
     if (hashT <= 0 && !TEST) {
@@ -832,6 +846,7 @@ function loop(now) {
     }
     frames++; fpsT += dt;
     if (fpsT > 0.5) { $('fps').textContent = `${Math.round(frames / fpsT)} fps`; frames = 0; fpsT = 0; }
+    arcade.applyCamera(camera);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(loop);

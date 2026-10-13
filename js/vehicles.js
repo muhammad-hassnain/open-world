@@ -217,11 +217,20 @@ export class Vehicle {
     this.root.add(this.tilt);
     this.x = 0; this.z = 0; this.y = 0; this.yaw = 0;
     this.speed = 0; this.steer = 0; this.pitch = 0; this.roll = 0; this.spin = 0;
+    this.nitro = 0.5; this.boosting = false; this.flat = false;
     this.driver = null;
     if (kind === 'car') this._buildCar(); else this._buildBike(color);
   }
 
   get code() { return this.kind === 'car' ? `car:${this.type}` : 'bike'; }
+
+  // New paint (a tint on the model's palette texture); null restores the original.
+  respray(color) {
+    if (this.kind !== 'car' || !this.body) return;
+    if (!this._paint) { this._paint = this.body.material.clone(); this._paint.userData = {}; }
+    this._paint.color.set(color || '#ffffff');
+    this.body.material = this._paint;
+  }
 
   _buildCar() {
     const m = CAR_MODELS[this.type];
@@ -237,6 +246,8 @@ export class Vehicle {
     const body = new THREE.Mesh(c.body, material);
     body.castShadow = true;
     model.add(body);
+    this.body = body;
+    this._base = material;
     this.wheels = [];
     for (const w of c.wheels) {
       const pivot = new THREE.Group();
@@ -293,21 +304,27 @@ export class Vehicle {
   get right() { return [Math.cos(this.yaw), -Math.sin(this.yaw)]; }
 
   // Arcade driving. ctl: throttle -1..1 (negative brakes, then reverses), steer -1..1 (right +),
-  // brake: handbrake held.
+  // brake: handbrake held, boost: nitrous (uses this.nitro, 0..1).
   drive(dt, ctl, world) {
     const P = this.spec;
     const thr = clamp(ctl.throttle || 0, -1, 1);
-    const target = thr > 0 ? thr * P.maxFwd : thr < 0 ? thr * P.maxRev : 0;
+    // Nitrous: 30% more top speed and twice the pull while it lasts (about 4 s from full).
+    this.boosting = !!ctl.boost && thr > 0 && this.kind === 'car' && this.nitro > 0 && this.speed > 2;
+    if (this.boosting) this.nitro = Math.max(0, this.nitro - dt / 4);
+    // Blown tires (spike strips): about half the speed until repaired.
+    const top = P.maxFwd * (this.boosting ? 1.3 : 1) * (this.flat ? 0.55 : 1);
+    const target = thr > 0 ? thr * top : thr < 0 ? thr * P.maxRev : 0;
     const opposing = (thr > 0 && this.speed < -0.3) || (thr < 0 && this.speed > 0.3);
     // Acceleration fades toward top speed, as with a real engine.
-    const pull = thr > 0 && this.speed > 0 ? 1 - 0.65 * (this.speed / P.maxFwd) ** 2 : 1;
-    const rate = opposing ? P.brake : thr !== 0 ? P.accel * pull : P.coast;
+    const pull = thr > 0 && this.speed > 0 ? Math.max(0, 1 - 0.65 * (this.speed / top) ** 2) : 1;
+    const rate = opposing ? P.brake : thr !== 0 ? P.accel * pull * (this.boosting ? 2 : 1) : P.coast;
     this.speed = approach(this.speed, opposing ? 0 : target, rate * dt);
     if (ctl.brake) this.speed = approach(this.speed, 0, P.hand * dt);
 
     // Steering gets gentler with speed; the handbrake tightens the turn.
     const t = clamp(Math.abs(this.speed) / P.maxFwd, 0, 1);
-    this.steer = damp(this.steer, clamp(ctl.steer || 0, -1, 1) * lerp(P.steerLow, P.steerHigh, t), P.grip, dt);
+    const wobble = this.flat && Math.abs(this.speed) > 3 ? Math.sin(performance.now() / 90) * 0.25 : 0;
+    this.steer = damp(this.steer, clamp((ctl.steer || 0) + wobble, -1, 1) * lerp(P.steerLow, P.steerHigh, t), P.grip, dt);
     let yawRate = (-this.speed * Math.tan(this.steer)) / P.wheelbase;
     if (ctl.brake && Math.abs(this.speed) > 4) yawRate *= 1.6;
     this.yaw += yawRate * dt;

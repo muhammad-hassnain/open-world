@@ -69,6 +69,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/overture.js` | Overture Maps PMTiles reader (range requests, newest release from the bucket listing); `mergeOverture` adds fresher places (drops ones closed for good, fills address/phone/web) and footprints/building types OSM lacks |
 | `js/navigate.js` | `Navigator`: OSRM route (FOSSGIS server, OSRM demo as fallback) from the player to a map point ("Drive here"), progress along it, next maneuver / lanes / distance / ETA panel (`#nav`), reroute when off the route; `line` for the minimap, `onChange` for the map layer |
 | `js/roadsigns.js` | `RoadSigns`: guide signs (gantries on freeways, posts elsewhere) and route shields from `chunk.signs`, canvas panels built within 520 m of the player |
+| `js/arcade.js` | `Arcade`: Speed Points (near misses, oncoming, drifts, top speed, takedowns, escapes; combo ×5; saved in localStorage), nitrous refill, gas stations (fuel POIs: repair, refill, respray, lose 2 stars unseen), slow-motion crash cam (`timeScale`, `applyCamera`) |
 | `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
 | `js/bridges.js` | Deck heights for bridges and their ramps per tile (`elevateRoads`), `deckY(road, x, z)` |
 | `js/chunks.js` | `ChunkManager`: which chunks to load/build/drop, tile prep (T-junction repair, road-width fitting, footway classification), clipping, builds |
@@ -224,6 +225,9 @@ in detail data.
   where two roads of tertiary or higher cross with one secondary or higher). Each controller
   alternates two axes on a 36 s cycle; `signalState(sig, axis, t)` is the one source of truth for
   lamps and cars. Car models' handling is `CAR_MODELS` in `vehicles.js`.
+- Police units have `hp`; ramming (closing speed) and their own crashes damage them, and at 0
+  they're `wreck`ed (`onTakedown`). Spike strips (heat 3+) set `vehicle.flat` until a gas station.
+  Nitrous is `vehicle.nitro` (0..1) and `ctl.boost`; Shift while driving, the N₂O touch button.
 - Police units drive with `rough` collisions (only buildings and vehicles with a driver stop them)
   so they don't jam on parked cars and props, and are replaced when they stop getting closer out
   of sight. The player's driven car stays in `world.obstacles` so units can box it in.

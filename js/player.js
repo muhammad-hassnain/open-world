@@ -129,10 +129,11 @@ export class Player {
 
   _drive(dt, input) {
     const v = this.vehicle;
+    this.input = input;
     this.camYaw -= input.lookX;
     this.camPitch = clamp(this.camPitch + input.lookY, -0.3, 1.2);
     this.camDist = clamp(this.camDist + input.zoom, 2.5, 25);
-    v.drive(dt, { throttle: input.fwd, steer: input.right, brake: input.brake }, this.world);
+    v.drive(dt, { throttle: input.fwd, steer: input.right, brake: input.brake, boost: input.boost }, this.world);
     // The camera swings back behind the vehicle while it moves, unless you're looking around.
     if (input.lookX) this._lookT = 1.5;
     else this._lookT = Math.max(0, (this._lookT || 0) - dt);
