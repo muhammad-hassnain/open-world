@@ -31,7 +31,7 @@ RAW_DIR = ROOT / ".cache" / "overpass"
 OUT_DIR = ROOT / "data" / "detail"
 
 # Bump when the output format or processing changes.
-PROCESS_VERSION = 4
+PROCESS_VERSION = 5
 EXTENT = 4096
 ZOOM = 14
 
@@ -289,6 +289,9 @@ def roads(elements, proj):
             r["tu"] = 1
         if t.get("bridge") not in (None, "no"):
             r["br"] = 1
+        ly = parse_num(t.get("layer"))
+        if ly:
+            r["ly"] = int(ly)
         if t.get("area") == "yes":
             r["ar"] = 1
         out.append(r)

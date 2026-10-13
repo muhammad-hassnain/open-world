@@ -80,8 +80,10 @@ export function clipLine(pts, r) {
       if (Math.abs(p[1] - r.minZ) < 1e-7) p[1] = r.minZ; else if (Math.abs(p[1] - r.maxZ) < 1e-7) p[1] = r.maxZ;
       return p;
     };
-    const p0 = t0 === 0 ? a : snap([a[0] + dx * t0, a[1] + dz * t0]);
-    const p1 = t1 === 1 ? c : snap([a[0] + dx * t1, a[1] + dz * t1]);
+    // A third coordinate (deck elevation of bridges) is interpolated too.
+    const at = (t) => (a.length > 2 ? [a[0] + dx * t, a[1] + dz * t, a[2] + (c[2] - a[2]) * t] : [a[0] + dx * t, a[1] + dz * t]);
+    const p0 = t0 === 0 ? a : snap(at(t0));
+    const p1 = t1 === 1 ? c : snap(at(t1));
     if (cur && t0 === 0) cur.push(p1);
     else { cur = [p0, p1]; out.push(cur); }
     if (t1 !== 1) cur = null;

@@ -68,6 +68,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/tiledata.js` | Fetch a z14 tile: detail JSON if listed in `data/detail/index.json`, else OpenFreeMap; OpenMapTiles → common format; `toLocal` |
 | `js/overture.js` | Overture Maps PMTiles reader (range requests, newest release from the bucket listing); `mergeOverture` adds fresher places (drops ones closed for good, fills address/phone/web) and footprints/building types OSM lacks |
 | `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
+| `js/bridges.js` | Deck heights for bridges and their ramps per tile (`elevateRoads`), `deckY(road, x, z)` |
 | `js/chunks.js` | `ChunkManager`: which chunks to load/build/drop, tile prep (T-junction repair, road-width fitting, footway classification), clipping, builds |
 | `js/clip.js` | Clip rings/polylines to a rectangle; `onBoundary` marks seams between chunks |
 | `js/world.js` | `ChunkIndex` (per-chunk data + spatial hashes) and `World` (queries across chunks: `resolveCircle`, `groundAt`, `heightAt`, `nearestRoad`, `onRoad`, `locate`, …) |
@@ -193,7 +194,14 @@ in detail data.
   in one browser session `page.screenshot` can hang; `tools/screenshot.py` uses a fresh browser
   per view. MapLibre logs harmless "performance warning: READ-usage buffer" messages there.
 - Terrain is a bare-earth model from 30 m (most of the world) to 3–10 m (US) data. Bridges and
-  overpasses aren't in it and still follow the ground; tunnels are skipped. Hilly chunks have
+  overpasses aren't in it; `bridges.js` (`elevateRoads`, per tile) gives bridge roads deck heights
+  between their ends on the ground, adds clearance over roads below (by OSM `layer`) and lifts the
+  approaches into ramps at 5.5%. Elevated roads have `ez` and a third coordinate (deck height) on
+  their points, which `clipLine` interpolates; `streets.js` draws them with a second builder draped
+  on the deck. Anything that stands on the ground must pass its own height:
+  `world.groundAt(x, z, y)` includes decks within a step of `y`; without `y` it's the terrain.
+  `world.offDeck` is the railing (vehicles slide along it). `world.onRoad` ignores bridges (ground
+  queries under them). Tunnels are skipped. Pier colliders don't exist yet. Hilly chunks have
   about 40% more triangles because the ground is subdivided to 5 m; flat chunks use 40 m.
 - Files under `assets/` are cached by browsers for a day (`vercel.json`). When you replace one
   in place (same name), bump its version in the URL (`MODEL_VERSION` in `js/character.js` for

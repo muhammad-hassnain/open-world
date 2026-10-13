@@ -3,6 +3,7 @@ import { MultiBuilder, col, resample, offsetPolyline, rng, pointInShape } from '
 import { inRect } from './clip.js';
 import { SIDEWALK_Y, MAJOR_ROADS, CAR_ONLY } from './world.js';
 import { yellowCenterLines } from './limits.js';
+import { deckY } from './bridges.js';
 
 // Multipliers on the textures (values above 1 brighten).
 const rgb = (r, g, b) => new THREE.Color(r, g, b);
@@ -164,6 +165,12 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
     maxEdge: (range < 0.6 ? 40 : range < 4 ? 12 : 5) * (lite ? 2 : 1),
     drapeByKey: world.terrain ? { water: (x, z) => world.terrain.water(x, z) } : {},
   });
+  // Bridges and ramps: drawn by a second builder that lifts each vertex to the deck of the
+  // road being drawn (deckRoad) instead of the terrain.
+  let deckRoad = null;
+  const deckMb = new MultiBuilder(materials, { drape: (x, z) => (deckRoad ? deckY(deckRoad, x, z) : 0), maxEdge: 6 });
+  const on = (r) => { deckRoad = r; return deckMb; };
+  const finish = (cast) => [...mb.meshes({ cast, receive: true }), ...deckMb.meshes({ cast: true, receive: true })];
   const spots = { trees: [], wells: [], lamps: [], cars: [] };
   const rect = chunk.rect;
   const tick = async () => { if (budget) await budget.tick(); };
@@ -179,20 +186,23 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
 
   for (const r of chunk.roads) {
     await tick();
+    if (r.ez) deckStructure(on(r), r, world, lite);
     if (r.kind === 'car' || r.kind === 'service') {
       const y = r.kind === 'car' ? Y.road : Y.service;
-      const g = mb.get(r.kind === 'car' ? 'road' : 'lot');
+      const g = (r.ez ? on(r) : mb).get(r.kind === 'car' ? 'road' : 'lot');
       const c = r.kind === 'car' ? TINT.road : TINT.service;
       ribbon(g, r.p, r.hw, y, c);
       for (const p of [r.p[0], r.p[r.p.length - 1]]) disc(g, p[0], p[1], r.hw, y, c);
     } else if (r.kind === 'plaza') {
       const ring = r.p.slice(0, -1);
       if (ring.length >= 3) mb.get('paving').polygon(ring, [], Y.plaza, TINT.plaza);
+    } else if (r.ez) {
+      ribbon(on(r).get('sidewalk').uvPlanar(), r.p, r.hw, Y.path, TINT.footway);  // foot and cycle bridges
     } else if (lite && r.kind === 'path' && r.t === 'cycleway') {
       ribbon(mb.get('road'), r.p, r.hw, Y.path, TINT.cycleway);
     }
   }
-  if (lite) return { meshes: mb.meshes({ cast: false, receive: true }), spots };
+  if (lite) return { meshes: finish(false), spots };
 
   markRoadCommercial(world, chunk.carRoads);
   const paint = mb.get('paint');
@@ -207,11 +217,12 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
     if (!r.lanes || !(MAJOR_ROADS.has(r.t) || link)) continue;
     await tick();
     const L = r.lanes, fast = /^(motorway|trunk)/.test(r.t);
+    const P = r.ez ? on(r).get('paint') : paint;
     for (const run of runs(resample(r.p, 1), (s) => !nearIx(s.x, s.z, 2.5), 2)) {
       const pts = run.map((s) => [s.x, s.z]), s0 = run[0].s;
       const line = (off, hw, c, dash) => {
         const p = offsetPolyline(pts, off);
-        for (const d of dash ? dashes(p, dash[0], dash[1], s0) : [p]) ribbon(paint, d, hw, Y.mark, c);
+        for (const d of dash ? dashes(p, dash[0], dash[1], s0) : [p]) ribbon(P, d, hw, Y.mark, c);
       };
       if (r.ow) {
         if (L.edge) {
@@ -248,13 +259,13 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
         const nx = -p.tz, nz = p.tx;
         const from = r.ow ? -r.hw + 0.4 : 0.2, to = r.hw - 0.4;
         const mid = (from + to) / 2, half = (to - from) / 2;
-        groundRect(paint, p.x + nx * mid, p.z + nz * mid, p.tx, p.tz, 0.22, half, Y.mark, TINT.white);
+        groundRect(r.ez ? on(r).get('paint') : paint, p.x + nx * mid, p.z + nz * mid, p.tx, p.tz, 0.22, half, Y.mark, TINT.white);
       }
     }
   }
 
   for (const r of chunk.roads) {
-    if (r.kind !== 'crossing' || r.cm === 'no' || r.cr === 'unmarked' || r.cr === 'no') continue;
+    if (r.kind !== 'crossing' || r.ez || r.cm === 'no' || r.cr === 'unmarked' || r.cr === 'no') continue;
     await tick();
     for (const s of resample(r.p, 0.9)) {
       if (world.onRoad(s.x, s.z, -0.2, null, CAR_ONLY)) groundRect(paint, s.x, s.z, s.tx, s.tz, 0.22, 1.5, Y.cross, TINT.white);
@@ -264,7 +275,7 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
     .some((s) => s.road.kind === 'crossing' && Math.hypot((s.ax + s.bx) / 2 - x, (s.az + s.bz) / 2 - z) < d + Math.hypot(s.bx - s.ax, s.bz - s.az) / 2));
 
   for (const r of chunk.roads) {
-    if (r.kind !== 'path') continue;
+    if (r.kind !== 'path' || r.ez) continue;
     await tick();
     const key = r.t === 'cycleway' ? 'road' : r.t === 'path' || r.t === 'track' ? 'pathGravel' : 'sidewalk';
     const c = r.t === 'cycleway' ? TINT.cycleway : key === 'pathGravel' ? TINT.path : TINT.footway;
@@ -286,7 +297,7 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
   }
 
   for (const r of chunk.roads) {
-    if (r.kind !== 'sidewalk') continue;
+    if (r.kind !== 'sidewalk' || r.ez) continue;
     await tick();
     for (const run of runs(resample(r.p, 0.6), (s) => !world.onRoad(s.x, s.z, 0.1, null, CAR_ONLY), 1)) {
       slab(mb, chunk, run.map((s) => [s.x, s.z]), r.hw, SIDEWALK_Y);
@@ -294,6 +305,7 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
   }
 
   for (const r of chunk.carRoads) {
+    if (r.ez) continue;  // no sidewalks, trees or parking on bridges and ramps
     await tick();
     const strip = r.commercial ? 0 : 1.3;
     const sw = r.commercial ? 3.4 : 1.7;
@@ -356,7 +368,78 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
   spots.lamps = spots.lamps.filter((p) => clear(p, 0.4) && !nearCrossing(p.x, p.z, 1.5));
   for (const p of spots.wells) groundRect(mb.get('paint'), p.x, p.z, 1, 0, 0.6, 0.6, SIDEWALK_Y + 0.006, TINT.grate);
 
-  return { meshes: mb.meshes({ cast: false, receive: true }), spots };
+  return { meshes: finish(false), spots };
+}
+
+// Concrete under and beside an elevated road, in coordinates relative to its deck: bridges get
+// a girder, railings and piers down to the ground; ramps get retaining walls down to the ground.
+const CONCRETE = rgb(1.55, 1.53, 1.48);
+function deckStructure(mb, r, world, lite) {
+  const g = mb.get('concrete');
+  const pts = resample(r.p, 4).map((s) => [s.x, s.z]);
+  if (pts.length < 2) return;
+  const W = r.hw + 0.35, RAIL = r.br ? 0.85 : 0.6, GIRDER = 1.1;
+  const below = (x, z) => world.elevation(x, z) - deckY(r, x, z) - 0.4;  // ground, relative to the deck
+  for (const side of [-1, 1]) {
+    const outer = offsetPolyline(pts, side * W), inner = offsetPolyline(pts, side * r.hw);
+    // Ramps stand on an earth embankment sloping down 1.6:1 beside the barrier.
+    const foot = r.br ? null : outer.map((p, i) => {
+      const h = Math.max(0, -below(p[0], p[1]));
+      const tx = (pts[Math.min(i + 1, pts.length - 1)][0] - pts[Math.max(i - 1, 0)][0]), tz = (pts[Math.min(i + 1, pts.length - 1)][1] - pts[Math.max(i - 1, 0)][1]);
+      const l = Math.hypot(tx, tz) || 1, nx = (-tz / l) * side, nz = (tx / l) * side;
+      const fx = p[0] + nx * h * 1.6, fz = p[1] + nz * h * 1.6;
+      return [fx, fz, below(fx, fz)];
+    });
+    for (let i = 0; i < pts.length - 1; i++) {
+      const tx = pts[i + 1][0] - pts[i][0], tz = pts[i + 1][1] - pts[i][1], l = Math.hypot(tx, tz) || 1;
+      const nx = (-tz / l) * side, nz = (tx / l) * side;  // outward
+      const a = outer[i], b = outer[i + 1], c = inner[i], d = inner[i + 1];
+      g.uvWall(tx / l, tz / l);
+      if (r.br) g.quad([a[0], -GIRDER, a[1]], [b[0], -GIRDER, b[1]], [b[0], RAIL, b[1]], [a[0], RAIL, a[1]], CONCRETE, [nx, 0, nz]);
+      else {
+        g.quad([a[0], -0.05, a[1]], [b[0], -0.05, b[1]], [b[0], RAIL, b[1]], [a[0], RAIL, a[1]], CONCRETE, [nx, 0, nz]);
+        const fa = foot[i], fb = foot[i + 1];
+        mb.get('grass').uvPlanar().quad([a[0], -0.05, a[1]], [b[0], -0.05, b[1]], [fb[0], fb[2], fb[1]], [fa[0], fa[2], fa[1]], TINT.grass, [nx, 1, nz]);
+      }
+      if (lite) continue;
+      g.quad([c[0], 0, c[1]], [d[0], 0, d[1]], [d[0], RAIL, d[1]], [c[0], RAIL, c[1]], CONCRETE, [-nx, 0, -nz]);
+      g.uvPlanar();
+      g.quad([c[0], RAIL, c[1]], [d[0], RAIL, d[1]], [b[0], RAIL, b[1]], [a[0], RAIL, a[1]], CONCRETE, UP);
+    }
+  }
+  if (!r.br) return;
+  // Underside of the girder.
+  const L = offsetPolyline(pts, -W), R = offsetPolyline(pts, W);
+  g.uvPlanar();
+  for (let i = 0; i < pts.length - 1; i++) {
+    g.quad([L[i][0], -GIRDER, L[i][1]], [R[i][0], -GIRDER, R[i][1]], [R[i + 1][0], -GIRDER, R[i + 1][1]], [L[i + 1][0], -GIRDER, L[i + 1][1]], CONCRETE, [0, -1, 0]);
+  }
+  if (lite) return;
+  // Piers where the deck stands high enough above the ground, one or two across.
+  const samples = resample(r.p, 26);
+  const total = samples.length ? samples[samples.length - 1].s : 0;
+  const offs = r.hw > 6 ? [-r.hw * 0.55, r.hw * 0.55] : [0];
+  for (const s of samples) {
+    if (s.s < 10 || s.s > total - 10) continue;
+    for (const o of offs) {
+      const x = s.x - s.tz * o, z = s.z + s.tx * o;
+      const bottom = below(x, z) - 0.4;
+      if (bottom > -GIRDER - 1.5) continue;
+      pier(g, x, z, s.tx, s.tz, 0.6, 0.9, bottom, -GIRDER);
+    }
+  }
+}
+
+function pier(g, x, z, tx, tz, ht, hn, y0, y1) {
+  const nx = -tz, nz = tx;
+  const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => [x + tx * ht * a + nx * hn * b, z + tz * ht * a + nz * hn * b]);
+  for (let i = 0; i < 4; i++) {
+    const p = c[i], q = c[(i + 1) % 4];
+    const ex = q[0] - p[0], ez = q[1] - p[1], l = Math.hypot(ex, ez) || 1;
+    g.uvWall(ex / l, ez / l);
+    const ox = (p[0] + q[0]) / 2 - x, oz = (p[1] + q[1]) / 2 - z;  // outward
+    g.quad([p[0], y0, p[1]], [q[0], y0, q[1]], [q[0], y1, q[1]], [p[0], y1, p[1]], CONCRETE, [ox, 0, oz]);
+  }
 }
 
 // Painted stalls on both sides of parking aisles inside mapped parking lots, plus cars in some.

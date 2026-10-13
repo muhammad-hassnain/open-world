@@ -13,6 +13,7 @@ import { clipRing, clipLine } from './clip.js';
 import { ChunkIndex, classifyRoad, roadHalfWidth } from './world.js';
 import { planBuildings, buildBuildings } from './buildings.js';
 import { buildStreets } from './streets.js';
+import { elevateRoads } from './bridges.js';
 import { buildTrees, buildFurniture, buildParkedCars } from './props.js';
 import { buildLights } from './traffic.js';
 import { Budget, SpatialHash, resample, closestOnSeg, pointInShape } from './util.js';
@@ -129,6 +130,7 @@ export class ChunkManager {
       this.tiles.set(key, Promise.all([fetchTile(DATA_ZOOM, tx, ty), aerial, heights])
         .then(([raw, img]) => {
           const d = prepareTile(toLocal(raw, this.frame.tileProjector(DATA_ZOOM, tx, ty, raw.extent || 4096)));
+          elevateRoads(d, this.terrain ? (x, z) => this.terrain.at(x, z) : () => 0);
           if (img) sampleRoofs(img, d.buildings, this.frame.tileRect(DATA_ZOOM, tx, ty));
           return d;
         })

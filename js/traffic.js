@@ -5,7 +5,8 @@
 // Each player has their own traffic; it isn't shared over the network.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { nodeKey, signalState, slowLane } from './world.js';
+import { nodeKey, signalState, slowLane, DECK_Y } from './world.js';
+import { deckY } from './bridges.js';
 import { CAR_TYPES, carsLoaded, parkedCarMesh, parkedCarLights } from './vehicles.js';
 import { clamp, damp, angleDelta, rng } from './util.js';
 import { speedLimit } from './limits.js';
@@ -139,7 +140,8 @@ export class Traffic {
       const ny = yaw + angleDelta(yaw, target) * (1 - Math.exp(-8 * this._dt));
       c.fx = Math.sin(ny); c.fz = Math.cos(ny);
     }
-    const hf = w.elevation(c.x + c.fx * 1.6, c.z + c.fz * 1.6), hb = w.elevation(c.x - c.fx * 1.6, c.z - c.fz * 1.6);
+    const ht = c.road.ez ? (x, z) => deckY(c.road, x, z) + DECK_Y : (x, z) => w.elevation(x, z);  // on its own road's deck
+    const hf = ht(c.x + c.fx * 1.6, c.z + c.fz * 1.6), hb = ht(c.x - c.fx * 1.6, c.z - c.fz * 1.6);
     c.y = (hf + hb) / 2;
     c.pitch = Math.atan2(hf - hb, 3.2);
   }

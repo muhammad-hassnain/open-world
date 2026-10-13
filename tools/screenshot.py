@@ -37,6 +37,24 @@ window.__corner = (a, b, o = {}) => {
   game.teleport(j.x + tx * along - tz * off, j.z + tz * along + tx * off, yaw);
   game.setView(yaw + turn, pitch, dist);
 };
+// Look at the nearest bridge from the side.
+window.__bridge = (o = {}) => {
+  const p0 = game.player;
+  let best = null;
+  for (const c of game.world.chunks.values()) for (const r of c.roads) {
+    if (!r.br || !r.ez || r.kind !== 'car') continue;
+    const m = r.p[Math.floor(r.p.length / 2)];
+    const d = Math.hypot(m[0] - p0.x, m[1] - p0.z);
+    if (!best || d < best.d) best = { d, r, m };
+  }
+  if (!best) throw new Error('no bridge nearby');
+  const { r, m } = best, a = r.p[0], b = r.p[r.p.length - 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const tx = (b[0] - a[0]) / l, tz = (b[1] - a[1]) / l, off = o.off ?? 45;
+  const x = m[0] - tz * off, z = m[1] + tx * off;
+  game.teleport(x, z, 0);
+  const yaw = Math.atan2(-(m[0] - x), -(m[1] - z));
+  game.setView(yaw, o.pitch ?? 0.12, o.dist ?? 6);
+};
 // Stand on the nearest road of a type (e.g. 'motorway'), looking along it.
 window.__road = (type, o = {}) => {
   const { pitch = 0.35, dist = 9, turn = 0 } = o;
@@ -70,6 +88,8 @@ VIEWS = {
     "globe": ("globe", ""),
     "freeway": ("test&at=38.5435,-121.7375", "__road('motorway');"),
     "autobahn": ("test&at=52.5003,13.2829", "__road('motorway');"),
+    "overpass": ("test&at=38.5435,-121.7375", "__bridge();"),
+    "seine": ("test&at=48.8590,2.3425", "game.atmo.setTimeMode('day'); game.teleport(90, 150, 1.4); game.setView(1.4, 0.1, 7);"),
 }
 
 

@@ -68,7 +68,7 @@ export class Multiplayer {
       const room = roomOf(lat, lon);
       if (room !== this.room || !this.ws) this._connect(room);
       const veh = player.vehicle;
-      const a = veh ? 0 : Math.max(0, p.y - this.world.groundAt(p.x, p.z));
+      const a = veh ? 0 : Math.max(0, p.y - this.world.groundAt(p.x, p.z, p.y));
       const v = veh ? veh.code : '', s = veh ? veh.speed : player.speed;  // vehicles send signed speed
       const L = this.last;
       const moved = Math.hypot(p.x - L.x, p.z - L.z) > 0.15 || Math.abs(angleDelta(L.yaw, player.yaw)) > 0.05
@@ -205,7 +205,8 @@ export class Multiplayer {
       const root = o.vehicle ? o.vehicle.root : o.char.root;
       root.visible = far < DRAW_RANGE;
       if (!root.visible) { o.tag.style.display = 'none'; continue; }
-      const y = (this.world ? this.world.groundAt(o.x, o.z) : 0) + o.a;
+      const y = (this.world ? this.world.groundAt(o.x, o.z, o.y ?? null) : 0) + o.a;
+      o.y = y - o.a;
       if (o.vehicle) {
         o.vehicle.follow(o.x, o.z, y, o.yaw, o.s, dt);
         o.char.root.visible = o.v === 'bike';

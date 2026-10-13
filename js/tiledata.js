@@ -117,6 +117,7 @@ function adaptVector(L) {
       if (p.service) r.sv = p.service;
       if (p.brunnel === 'tunnel') r.tu = 1;
       if (p.brunnel === 'bridge') r.br = 1;
+      if (p.layer) r.ly = p.layer;
       d.roads.push(r);
     }
   }

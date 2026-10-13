@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { clamp, damp, lerp } from './util.js';
+import { clamp, damp, lerp, angleDelta } from './util.js';
 
 // Cars people drive (traffic, parked, yours) and every model file to load (adds police cars).
 export const CAR_TYPES = ['sedan', 'hatchback-sports', 'sedan-sports', 'suv', 'suv-luxury', 'taxi', 'van'];
@@ -330,6 +330,29 @@ export class Vehicle {
       this.speed *= head < -0.5 ? -0.2 : 0.96;
       this.hit = Math.max(this.hit || 0, Math.abs(this.speed));
     }
+    // Bridge railings: stop at the edge of a deck instead of dropping off it.
+    // Bridge railings: scrape along the edge of a deck instead of dropping off it.
+    const inset = this.kind === 'car' ? 1.0 : 0.4;
+    if (world.offDeck(this.x, this.z, x, z, this.y, inset)) {
+      const t = world.deckDir(this.x, this.z, this.y);
+      const mx = x - this.x, mz = z - this.z;
+      let ok = false;
+      if (t) {
+        const along = mx * t[0] + mz * t[1];
+        const sx = this.x + t[0] * along, sz = this.z + t[1] * along;
+        if (!world.offDeck(this.x, this.z, sx, sz, this.y, inset)) {
+          x = sx; z = sz; ok = true;
+          // Turn parallel to the railing, losing speed with the angle of the hit.
+          const yawT = Math.atan2(-t[0] * Math.sign(along || 1), -t[1] * Math.sign(along || 1));
+          const da = angleDelta(this.yaw, Math.sign(this.speed) >= 0 ? yawT : yawT + Math.PI);
+          this.yaw += da * 0.5;
+          this.speed *= 1 - Math.min(0.5, Math.abs(da));
+        }
+      }
+      if (!ok) { x = this.x; z = this.z; this.speed *= -0.2; }
+      this.hitNow = Math.max(this.hitNow || 0, Math.abs(this.speed) * 0.5);
+      this.hit = Math.max(this.hit || 0, Math.abs(this.speed) * 0.5);
+    }
     this.x = x; this.z = z;
     // Body roll from cornering and pitch from braking/accelerating (visual only).
     if (this.kind === 'car') {
@@ -346,7 +369,12 @@ export class Vehicle {
   // Height and tilt from the ground under the wheels (or the bike's lean in turns).
   _ground(world, dt, snap = false) {
     const P = this.spec, [fx, fz] = this.fwd, [rx, rz] = this.right;
-    const h = (a, b) => world.groundAt(this.x + fx * a + rx * b, this.z + fz * a + rz * b);
+    // On a deck, wheels over its edge (at the railing) count as on it.
+    const deck = world.deckAt(this.x, this.z, this.y);
+    const h = (a, b) => {
+      const g = world.groundAt(this.x + fx * a + rx * b, this.z + fz * a + rz * b, this.y);
+      return deck !== null && g < deck - 1.5 ? deck : g;
+    };
     const hf = h(P.wheelbase / 2, 0), hb = h(-P.wheelbase / 2, 0);
     let y = (hf + hb) / 2, pitch = Math.atan2(hf - hb, P.wheelbase), roll;
     if (this.kind === 'car') {

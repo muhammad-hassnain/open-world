@@ -22,6 +22,7 @@ const SERVICE_WIDTH = { alley: 4.5, driveway: 3.5, parking_aisle: 6, 'drive-thro
 const PATH_WIDTH = { footway: 2, path: 1.6, cycleway: 3, pedestrian: 4, steps: 2, track: 3, bridleway: 2, corridor: 2 };
 
 export const SIDEWALK_Y = 0.15;
+export const DECK_Y = 0.028;  // road surface above a deck's center line (streets.js Y.road)
 
 export function classifyRoad(r) {
   if (r.tu) return 'skip';
@@ -112,6 +113,14 @@ export class ChunkIndex {
     this.carRoads = this.roads.filter((r) => r.kind === 'car');
     this.roadHash = new SpatialHash(20);
     this.pathSegs = new SpatialHash(12);
+    this.decks = new SpatialHash(16);  // elevated roads (bridges, ramps): segments with heights
+    for (const r of this.roads) {
+      if (!r.ez) continue;
+      for (let i = 0; i < r.p.length - 1; i++) {
+        const a = r.p[i], b = r.p[i + 1];
+        this.decks.insert({ road: r, ax: a[0], az: a[1], ay: a[2], bx: b[0], bz: b[1], by: b[2], hw: r.hw }, ...segBox(a, b, r.hw + 0.3));
+      }
+    }
     for (const r of this.roads) {
       const isRoad = r.kind === 'car' || r.kind === 'service';
       const isPath = r.kind === 'path' || r.kind === 'sidewalk' || r.kind === 'crossing';
@@ -357,9 +366,52 @@ export class World {
     return b && b.solid ? b.top || b.height : 0;
   }
 
-  // Height of the walkable surface: terrain, plus the curb height on sidewalks.
-  groundAt(x, z) {
+  // Top of the highest bridge or ramp deck at (x, z) that something at height y can stand on
+  // (at most `step` above it), or null. Decks above head height are passed under.
+  deckAt(x, z, y, step = 1.1, inset = 0) {
+    let best = null;
+    for (const c of this.near(x, z)) {
+      for (const s of c.decks.near(x, z, 0)) {
+        const q = closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz);
+        if (q.d > s.hw + 0.3 - inset) continue;
+        const h = s.ay + (s.by - s.ay) * q.t + DECK_Y;
+        if (h <= y + step && (best === null || h > best)) best = h;
+      }
+    }
+    return best;
+  }
+
+  // Direction [tx, tz] of the deck under (x, z) at height y, or null.
+  deckDir(x, z, y) {
+    let best = null, bd = Infinity;
+    for (const c of this.near(x, z)) {
+      for (const s of c.decks.near(x, z, 0)) {
+        const q = closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz);
+        const h = s.ay + (s.by - s.ay) * q.t + DECK_Y;
+        if (q.d > s.hw + 0.3 || h > y + 1.1 || q.d >= bd) continue;
+        const l = Math.hypot(s.bx - s.ax, s.bz - s.az) || 1;
+        bd = q.d; best = [(s.bx - s.ax) / l, (s.bz - s.az) / l];
+      }
+    }
+    return best;
+  }
+
+  // True if moving from (x0, z0) to (x1, z1) at height y would step off a deck into a drop
+  // (or, with `inset`, come closer than that to its edge: half a car's width).
+  offDeck(x0, z0, x1, z1, y, inset = 0) {
+    if (this.deckAt(x0, z0, y, 0.6) === null) return false;
+    if (this.deckAt(x1, z1, y, 0.6, inset) !== null) return false;
+    return this.groundAt(x1, z1) < y - 1.5;
+  }
+
+  // Height of the walkable surface: terrain, plus the curb height on sidewalks. With y (the
+  // current height of whoever asks), bridge and ramp decks count too.
+  groundAt(x, z, y = null) {
     const e = this.elevation(x, z);
+    if (y !== null) {
+      const d = this.deckAt(x, z, y);
+      if (d !== null && d > e - 0.5) return d;
+    }
     for (const c of this.near(x, z)) {
       for (const s of c.raised.near(x, z, 0)) {
         if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d <= s.hw) return e + SIDEWALK_Y;
@@ -394,7 +446,7 @@ export class World {
     for (const c of this.near(x, z, 20)) {
       for (const s of c.roadHash.near(x, z, Math.max(0, pad))) {
         const r = s.road;
-        if (r === except || !kinds.has(r.kind)) continue;
+        if (r === except || !kinds.has(r.kind) || r.br) continue;  // bridges pass overhead
         if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d < r.hw + pad) return true;
       }
     }

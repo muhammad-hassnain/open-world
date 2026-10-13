@@ -71,7 +71,7 @@ export class Player {
     v.root.visible = true;
     this.char.setSeat(null);
     this.camDist = this._walkCam || 3.6;
-    this.pos.set(x, this.world.groundAt(x, z), z);
+    this.pos.set(x, this.world.groundAt(x, z, v.y + 0.5), z);
     this.vel.set(0, 0, 0);
     this.yaw = v.yaw;
     this.onGround = true;
@@ -104,11 +104,13 @@ export class Player {
     // Horizontal move with collision.
     let nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
     [nx, nz] = w.resolveCircle(nx, nz, RADIUS);
+    // Bridge railings: don't walk off the edge of a deck.
+    if (w.offDeck(this.pos.x, this.pos.z, nx, nz, this.pos.y)) { nx = this.pos.x; nz = this.pos.z; this.vel.x = 0; this.vel.z = 0; }
     this.speed = dt > 0 ? Math.hypot(nx - this.pos.x, nz - this.pos.z) / dt : 0;
     this.pos.x = nx; this.pos.z = nz;
 
     // Vertical: jump, gravity, step onto curbs.
-    const ground = w.groundAt(nx, nz);
+    const ground = w.groundAt(nx, nz, this.pos.y);
     if (input.jump && this.onGround) { this.vel.y = JUMP_V; this.onGround = false; }
     if (!this.onGround) {
       this.vel.y -= GRAVITY * dt;
