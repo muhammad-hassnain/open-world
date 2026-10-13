@@ -261,10 +261,7 @@ $('search').addEventListener('submit', async (e) => {
       b.textContent = r.name;
       b.addEventListener('click', () => {
         list.innerHTML = '';
-        const [s, n, w, ea] = r.bbox;
-        const small = (n - s) < 0.01 && (ea - w) < 0.01;
-        if (small) globe.flyTo({ lat: r.lat, lon: r.lon, zoom: 17, duration: 3000 });
-        else globe.fitBounds(r.bbox);
+        globe.showPlace(r);
       });
       list.appendChild(b);
     }

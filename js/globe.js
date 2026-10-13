@@ -53,6 +53,19 @@ export class Globe {
     this.map.fitBounds([[west, south], [east, north]], { padding: 60, maxZoom: 17, essential: true });
   }
 
+  // Frame a search result on its point (for a city, its center). Bounding boxes can include
+  // far-off parts, like San Francisco's Farallon Islands or France's overseas regions, so the
+  // box is made symmetric around the point using the nearer edge on each axis, and neither axis
+  // may span more than 3x the other.
+  showPlace({ lat, lon, bbox: [s, n, w, e] }) {
+    if (n - s < 0.01 && e - w < 0.01) return this.flyTo({ lat, lon, zoom: 17, duration: 3000 });
+    const k = Math.cos(lat * Math.PI / 180);
+    const a = Math.max(0.002, Math.min(lat - s, n - lat));      // half height, degrees of latitude
+    const b = Math.max(0.002, Math.min(lon - w, e - lon) * k);  // half width, same units
+    const dLat = Math.min(a, 3 * b), dLon = Math.min(b, 3 * a) / k;
+    this.fitBounds([lat - dLat, lat + dLat, lon - dLon, lon + dLon]);
+  }
+
   on(event, fn) { this.map.on(event, fn); }
 }
 
