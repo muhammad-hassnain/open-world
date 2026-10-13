@@ -5,7 +5,7 @@
 // Each player has their own traffic; it isn't shared over the network.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { nodeKey, signalState } from './world.js';
+import { nodeKey, signalState, slowLane } from './world.js';
 import { CAR_TYPES, carsLoaded, parkedCarMesh, parkedCarLights } from './vehicles.js';
 import { clamp, damp, angleDelta, rng } from './util.js';
 import { speedLimit } from './limits.js';
@@ -129,7 +129,7 @@ export class Traffic {
 
   _place(c, snap) {
     const g = this._seg(c);
-    const lane = c.road.ow ? 0 : c.road.hw * 0.28;
+    const lane = c.road.ow ? slowLane(c.road) * c.dir : Math.abs(slowLane(c.road));  // the slow lane
     const x = g.a[0] + g.tx * c.s - g.tz * lane, z = g.a[1] + g.tz * c.s + g.tx * lane;  // right of travel
     const w = this.world;
     if (snap) { c.x = x; c.z = z; c.fx = g.tx; c.fz = g.tz; }

@@ -24,3 +24,28 @@ export function speedLimit(road, miles) {
   const v = KMH[t] || 40;
   return { value: v, unit: 'km/h', ms: v / KMH_PER_MS };
 }
+
+// Road markings: center lines separating opposite directions are yellow in the Americas,
+// Norway, Finland, China, South Korea and Taiwan, white elsewhere. Borders are coarse.
+const CHINA = [[73.5, 39.5], [80, 42.5], [80.5, 45], [83, 47.2], [87.5, 49.2], [90.5, 47.8], [96, 42.8], [105, 41.6],
+  [111.5, 43.5], [119.5, 47.2], [116, 49.8], [120, 52.8], [126, 52.8], [131, 47.8], [134.7, 48.3], [131, 42.8],
+  [124.3, 40], [121, 39], [122, 37.5], [119.5, 35], [122, 31], [121.5, 28], [117.5, 23.6], [111, 21.3], [108, 21.5],
+  [106.5, 22.4], [103.5, 22.6], [101.8, 21.2], [100, 21.5], [98.5, 24.1], [97.5, 27.8], [92, 27.8], [88.5, 28],
+  [85, 28.4], [81, 30.2], [78.8, 32.5], [79.5, 35.5], [75, 37.5]];
+function inPoly(lon, lat, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+export function yellowCenterLines(lat, lon) {
+  if (lon < -30) return true;
+  const norwayBorder = lat < 63 ? 12.3 : lat < 69 ? 12.3 + ((lat - 63) * 7.7) / 6 : 31;
+  if (lat >= 57.9 && lat <= 71.5 && lon >= 4 && lon < norwayBorder) return true;
+  if (lat >= 59.7 && lat <= 70.1 && lon <= 31.6 && lon >= (lat > 65.5 ? 24.1 : lat > 63.5 ? 22.5 : 21)) return true;
+  if (lat >= 33 && lat <= 38.6 && lon >= 124.5 && lon <= 130.95) return true;   // South Korea
+  if (lat >= 21.8 && lat <= 25.4 && lon >= 119.9 && lon <= 122.1) return true;  // Taiwan
+  return inPoly(lon, lat, CHINA);
+}

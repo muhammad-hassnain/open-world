@@ -169,8 +169,11 @@ in detail data.
 
 ## Area-specific assumptions (to generalize later)
 
-- Road markings are US style (double yellow center lines, white stop lines) and stop lines,
-  parked-car direction and sidewalk placement assume right-hand traffic.
+- Lane markings follow the region (`yellowCenterLines` in `limits.js`: yellow center lines in the
+  Americas, Norway, Finland, China, South Korea, Taiwan; white elsewhere), but lanes, stop lines,
+  parked-car direction and sidewalk placement assume right-hand traffic. Lane counts come from
+  OSM `lanes` (detail data only); elsewhere `laneLayout()` in `world.js` uses defaults by class
+  fitted to the road width.
 - Street signs are US-style green blades; sidewalk and lane widths are US defaults.
 - Fallback building heights and styles are tuned for a small US downtown.
 - The default start point and the only detailed tile are downtown Davis.

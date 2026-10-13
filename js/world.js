@@ -38,11 +38,61 @@ export function roadHalfWidth(r, kind) {
   if (r.w && r.w > 1 && r.w < 40) return r.w / 2;
   if (kind === 'car') {
     const base = ROAD_WIDTH[r.t] || 9;
-    return (r.ln && r.ln >= 3 ? Math.max(base, r.ln * 3.4 + 1) : base) / 2;
+    if (!r.ln || r.ln < 2) return base / 2;
+    // Mapped lanes: 3.6 m freeway lanes plus shoulders, 3.3 m elsewhere.
+    const fast = FAST.has(r.t);
+    return Math.max(base, r.ln * (fast ? 3.6 : 3.3) + (fast && r.ow ? 4 : 1)) / 2;
   }
   if (kind === 'service') return (SERVICE_WIDTH[r.sv] || 5) / 2;
   if (kind === 'sidewalk') return 1;
   return (PATH_WIDTH[r.t] || 2) / 2;
+}
+
+// ---------- lanes ----------
+
+const FAST = new Set(['motorway', 'trunk']);
+// Roads that merge and split without stop lines or traffic lights.
+const FREEWAY = new Set(['motorway', 'motorway_link', 'trunk', 'trunk_link']);
+// Lanes in the direction of travel on a one-way carriageway, and in total on a two-way road,
+// when OSM doesn't say (vector tiles never do).
+const ONEWAY_LANES = { motorway: 3, trunk: 2, primary: 2, secondary: 2 };
+const TWOWAY_LANES = { motorway: 4, trunk: 4, primary: 4 };
+
+// Where the lanes are across a car road: offsets are meters from the center line of the way,
+// positive to the right of travel (offsetPolyline's sign).
+//   fwd / back  lanes with / against the way's direction (back = 0 on one-way roads)
+//   lw          lane width
+//   start       offset of the left edge of the leftmost forward lane
+//   turn        a shared center turn lane (odd lane counts on two-way roads)
+//   edge        offsets of the outer edge lines (null where the lanes reach the curb)
+export function laneLayout(r, hw) {
+  const W = hw * 2, fast = FAST.has(r.t);
+  if (r.ow) {
+    let n = r.ln || ONEWAY_LANES[r.t] || (W >= 9 ? 2 : 1);
+    const shoulders = fast ? 3 : r.t.endsWith('_link') ? 1.6 : 0.6;
+    n = Math.max(1, Math.min(n, Math.floor((W - shoulders) / 2.8)));
+    const lw = Math.min(fast ? 3.7 : 3.5, (W - shoulders) / n);
+    const spare = W - n * lw, left = fast ? Math.min(1.2, spare * 0.35) : spare / 2;
+    const start = -hw + left;
+    return { fwd: n, back: 0, lw, start, turn: false, edge: spare > 0.5 ? [start, start + n * lw] : null };
+  }
+  let total = r.ln || TWOWAY_LANES[r.t] || 2;
+  let turn = total >= 3 && total % 2 === 1;
+  let side = Math.floor(total / 2);
+  side = Math.max(1, Math.min(side, Math.floor((hw - (turn ? 1.6 : 0) - 0.3) / 2.8)));
+  if (turn && hw - side * 2.8 < 1.6 + 0.3) turn = false;
+  const lw = Math.min(3.5, (hw - (turn ? 1.7 : 0) - 0.3) / side);
+  const c0 = turn ? Math.min(lw, 3.4) / 2 : 0;
+  const outer = c0 + side * lw;
+  return { fwd: side, back: side, lw, start: c0, turn, c0, edge: hw - outer > 0.8 ? [-outer, outer] : null };
+}
+
+// Offset of the center of the outermost (slow) lane in the way's direction, or against it.
+export function slowLane(road, dir = 1) {
+  const L = road.lanes;
+  if (!L) return road.ow ? 0 : road.hw * 0.28 * dir;
+  if (road.ow) return L.start + (L.fwd - 0.5) * L.lw;
+  return dir * (L.c0 + (L.fwd - 0.5) * L.lw);
 }
 
 const segBox = (a, b, pad) => [Math.min(a[0], b[0]) - pad, Math.min(a[1], b[1]) - pad, Math.max(a[0], b[0]) + pad, Math.max(a[1], b[1]) + pad];
@@ -56,7 +106,8 @@ export class ChunkIndex {
 
     this.roads = data.roads.map((r, idx) => {
       const kind = classifyRoad(r);
-      return { ...r, idx, kind, hw: roadHalfWidth(r, kind), bbox: bboxOf(r.p), chunk: key };
+      const hw = roadHalfWidth(r, kind);
+      return { ...r, idx, kind, hw, lanes: kind === 'car' ? laneLayout(r, hw) : null, bbox: bboxOf(r.p), chunk: key };
     });
     this.carRoads = this.roads.filter((r) => r.kind === 'car');
     this.roadHash = new SpatialHash(20);
@@ -86,7 +137,7 @@ export class ChunkIndex {
       const carArms = arms.filter((a) => a.road.kind === 'car');
       let degree = 0;
       for (const a of carArms) degree += a.vi > 0 && a.vi < a.road.p.length - 1 ? 2 : 1;
-      return { x: j.x, z: j.z, arms, carArms, isIx: degree >= 3, radius: Math.max(0, ...carArms.map((a) => a.road.hw)) };
+      return { x: j.x, z: j.z, arms, carArms, isIx: degree >= 3, freeway: carArms.length > 0 && carArms.every((a) => FREEWAY.has(a.road.t)), radius: Math.max(0, ...carArms.map((a) => a.road.hw)) };
     });
     this.junctionHash = new SpatialHash(30);
     for (const j of this.junctions) this.junctionHash.insert(j, j.x, j.z, j.x, j.z);
@@ -192,7 +243,7 @@ function computeSignals(junctions, props, chunk) {
   const mapped = props.filter((p) => p.k === 'signal');
   const out = [];
   for (const j of junctions) {
-    if (!j.isIx || j.carArms.length < 2) continue;
+    if (!j.isIx || j.carArms.length < 2 || j.freeway) continue;
     const ranks = j.carArms.map((a) => ROAD_RANK[a.road.t] || 0);
     const lit = mapped.length
       ? mapped.some((p) => Math.hypot(p.x - j.x, p.z - j.z) < 18)

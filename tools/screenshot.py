@@ -37,6 +37,25 @@ window.__corner = (a, b, o = {}) => {
   game.teleport(j.x + tx * along - tz * off, j.z + tz * along + tx * off, yaw);
   game.setView(yaw + turn, pitch, dist);
 };
+// Stand on the nearest road of a type (e.g. 'motorway'), looking along it.
+window.__road = (type, o = {}) => {
+  const { pitch = 0.35, dist = 9, turn = 0 } = o;
+  const p0 = game.player;
+  let best = null;
+  for (const c of game.world.chunks.values()) for (const r of c.carRoads) {
+    if (r.t !== type) continue;
+    for (let i = 0; i < r.p.length - 1; i++) {
+      const [ax, az] = r.p[i], [bx, bz] = r.p[i + 1], l = Math.hypot(bx - ax, bz - az);
+      if (l < 30) continue;
+      const mx = (ax + bx) / 2, mz = (az + bz) / 2, d = Math.hypot(mx - p0.x, mz - p0.z);
+      if (!best || d < best.d) best = { d, mx, mz, tx: (bx - ax) / l, tz: (bz - az) / l };
+    }
+  }
+  if (!best) throw new Error(`no ${type} nearby`);
+  const yaw = Math.atan2(-best.tx, -best.tz);
+  game.teleport(best.mx, best.mz, yaw);
+  game.setView(yaw + turn, pitch, dist);
+};
 }"""
 
 # name: (URL query, setup script)
@@ -49,6 +68,8 @@ VIEWS = {
     "overview": ("test", "game.setView(game.player.camYaw + 0.6, 1.0, 10);"),
     "map": ("test", "game.openMap(true);"),
     "globe": ("globe", ""),
+    "freeway": ("test&at=38.5435,-121.7375", "__road('motorway');"),
+    "autobahn": ("test&at=52.5003,13.2829", "__road('motorway');"),
 }
 
 

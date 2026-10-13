@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MultiBuilder, col, resample, offsetPolyline, rng, pointInShape } from './util.js';
 import { inRect } from './clip.js';
 import { SIDEWALK_Y, MAJOR_ROADS, CAR_ONLY } from './world.js';
+import { yellowCenterLines } from './limits.js';
 
 // Multipliers on the textures (values above 1 brighten).
 const rgb = (r, g, b) => new THREE.Color(r, g, b);
@@ -45,6 +46,29 @@ function groundRect(g, x, z, tx, tz, ht, hn, y, c) {
   g.quad(
     [x - tx * ht - nx * hn, y, z - tz * ht - nz * hn], [x + tx * ht - nx * hn, y, z + tz * ht - nz * hn],
     [x + tx * ht + nx * hn, y, z + tz * ht + nz * hn], [x - tx * ht + nx * hn, y, z - tz * ht + nz * hn], c, UP);
+}
+
+// Dashes along a polyline: on meters painted, off meters gap, counted from distance s0.
+function dashes(pts, on, off, s0 = 0) {
+  const out = [], period = on + off;
+  let cur = null, s = s0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 1e-6) continue;
+    for (let t = 0; t < len;) {
+      const ph = (((s + t) % period) + period) % period, painted = ph < on;
+      const step = Math.max(1e-3, Math.min(len - t, painted ? on - ph : period - ph));
+      const u0 = t / len, u1 = Math.min(1, (t + step) / len);
+      if (painted) {
+        if (!cur) { cur = [[a[0] + (b[0] - a[0]) * u0, a[1] + (b[1] - a[1]) * u0]]; out.push(cur); }
+        cur.push([a[0] + (b[0] - a[0]) * u1, a[1] + (b[1] - a[1]) * u1]);
+      } else cur = null;
+      t += step;
+    }
+    s += len;
+  }
+  return out.filter((d) => d.length > 1);
 }
 
 function runs(samples, keep, minLen = 1) {
@@ -173,17 +197,48 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
   markRoadCommercial(world, chunk.carRoads);
   const paint = mb.get('paint');
 
+  // Lane markings on major roads and ramps, in the local colors: center lines yellow or white,
+  // white lane lines (dashed) and edge lines, yellow left edge on divided highways in the Americas.
+  const yellow = yellowCenterLines(world.frame.lat, world.frame.lon);
+  const center = yellow ? TINT.yellow : TINT.white;
+  const DASH = yellow ? [3, 9] : [4.5, 7.5];
   for (const r of chunk.carRoads) {
-    if (r.ow || !MAJOR_ROADS.has(r.t)) continue;
+    const link = r.t.endsWith('_link');
+    if (!r.lanes || !(MAJOR_ROADS.has(r.t) || link)) continue;
     await tick();
+    const L = r.lanes, fast = /^(motorway|trunk)/.test(r.t);
     for (const run of runs(resample(r.p, 1), (s) => !nearIx(s.x, s.z, 2.5), 2)) {
-      const pts = run.map((s) => [s.x, s.z]);
-      for (const off of [-0.13, 0.13]) ribbon(paint, offsetPolyline(pts, off), 0.055, Y.mark, TINT.yellow);
+      const pts = run.map((s) => [s.x, s.z]), s0 = run[0].s;
+      const line = (off, hw, c, dash) => {
+        const p = offsetPolyline(pts, off);
+        for (const d of dash ? dashes(p, dash[0], dash[1], s0) : [p]) ribbon(paint, d, hw, Y.mark, c);
+      };
+      if (r.ow) {
+        if (L.edge) {
+          line(L.edge[0] + 0.08, 0.075, yellow && (fast || link) ? TINT.yellow : TINT.white);
+          line(L.edge[1] - 0.08, 0.075, TINT.white);
+        }
+        for (let k = 1; k < L.fwd; k++) line(L.start + k * L.lw, 0.06, TINT.white, DASH);
+        continue;
+      }
+      if (L.turn) {
+        // Shared turn lane: solid outside, dashed inside, on both sides.
+        for (const sgn of [-1, 1]) {
+          line(sgn * (L.c0 - 0.12), 0.06, center, DASH);
+          line(sgn * (L.c0 + 0.12), 0.06, center);
+        }
+      } else if (yellow || L.fwd > 1) {
+        for (const off of [-0.13, 0.13]) line(off, 0.055, center);
+      } else {
+        line(0, 0.06, center, DASH);
+      }
+      for (let k = 1; k < L.fwd; k++) for (const sgn of [-1, 1]) line(sgn * (L.c0 + k * L.lw), 0.06, TINT.white, DASH);
+      if (L.edge && (fast || r.t === 'primary' || r.t === 'secondary')) for (const off of L.edge) line(off - Math.sign(off) * 0.08, 0.075, TINT.white);
     }
   }
 
   for (const j of chunk.junctions) {
-    if (!j.isIx) continue;
+    if (!j.isIx || j.freeway) continue;
     for (const a of j.carArms) {
       const r = a.road;
       for (const dir of [-1, 1]) {
