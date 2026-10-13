@@ -1,10 +1,11 @@
-# Open World — Downtown Davis
+# Open World
 
-A walkable, third-person 3D world built from real map data. You start on C Street in
-downtown Davis, California, next to Central Park, and can walk the real streets, sidewalks
-and crosswalks between B and C Streets from 1st to 5th. Every road, building, park and shop
-comes from [OpenStreetMap](https://www.openstreetmap.org); the world is generated in the
-browser in a clean, stylized look.
+An open world of the whole planet, built from real map data and explored on foot in third
+person. It starts with one neighborhood: downtown Davis, California. You spawn on C Street
+next to Central Park and can walk the real streets, sidewalks and crosswalks between B and C
+Streets from 1st to 5th. Every road, building, park and shop comes from
+[OpenStreetMap](https://www.openstreetmap.org), so the same approach works for any place on
+Earth. The world is generated in the browser in a clean, stylized look.
 
 ![Standing on C Street next to Central Park](docs/images/spawn.png)
 
@@ -12,8 +13,9 @@ browser in a clean, stylized look.
 | --- | --- |
 | ![Signs mode at B & 3rd Street](docs/images/signs.png) | ![Full map](docs/images/map.png) |
 
-The long-term goal is a world that gets more realistic as people contribute real photos and
-video of places; see [docs/ROADMAP.md](docs/ROADMAP.md).
+Where it's going: from one neighborhood to anywhere in the world, streamed in as you move, and
+more realistic wherever people contribute real photos and video of places. See
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features
 
@@ -100,11 +102,11 @@ docs/                Architecture, data formats, roadmap, images
 
 ## Changing the area
 
-The area is defined by `WORLD` in `server.py`: an `origin` (the 0,0 point of the local
-coordinate system), a walkable `core` bounding box and a larger, low-detail `context` box.
-Change those, restart the server, and it downloads the new area. The spawn point is chosen in
-`findSpawn()` in `js/main.js` (C Street & 3rd Street) and falls back to the origin if those
-streets don't exist.
+For now the game loads one area at a time, defined by `WORLD` in `server.py`: an `origin` (the
+0,0 point of the local coordinate system), a walkable `core` bounding box and a larger,
+low-detail `context` box. Any place OpenStreetMap covers works: change those values, restart
+the server, and it downloads the new area. The spawn point is chosen in `findSpawn()` in
+`js/main.js` (C Street & 3rd Street in Davis) and falls back to the origin elsewhere.
 
 ## Contributing
 

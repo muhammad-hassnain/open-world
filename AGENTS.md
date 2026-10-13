@@ -5,8 +5,9 @@ agent. Read this before making changes; read [README.md](README.md) for what the
 
 ## The project in one paragraph
 
-A browser game that turns OpenStreetMap data into a walkable, stylized 3D neighborhood
-(downtown Davis, CA: B and C Streets, 1st to 5th). `server.py` downloads OSM data once via the
+An open world of the whole planet built from OpenStreetMap data, starting with one walkable,
+stylized neighborhood: downtown Davis, CA (B and C Streets, 1st to 5th). Design for "anywhere",
+even though only Davis is loaded today. `server.py` downloads OSM data once via the
 Overpass API, converts it to compact JSON in local meters, caches it in `.cache/` and serves it.
 The browser (plain ES modules + three.js 0.160.1, no build step) generates every street,
 building, tree, sign and prop from that data at load time, then runs a third-person character
@@ -94,6 +95,9 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
 - **Data pipeline:** if you change an Overpass query or a processor in `server.py`, bump
   `PROCESS_VERSION` so cached processed files are rebuilt. Raw Overpass responses are cached by
   query hash in `.cache/overpass/`; processed files live in `.cache/data/`.
+- **Build for anywhere, not just Davis.** Derive behavior from OSM tags and geometry, not from
+  Davis street names or local habits. Keep anything area-specific in `WORLD` (server) or clearly
+  marked config, and add it to the list of area-specific assumptions below.
 - **Never commit `.cache/`** (it is in `.gitignore`).
 - **The OpenStreetMap credit line** (`#attrib` in `index.html`) is a license requirement; keep it visible.
 - **Commits and PRs:** short descriptive messages about the change. Do not add co-author
@@ -119,6 +123,18 @@ buildings here have `height` or `building:levels`.
 
 **Add or restyle a place category.** Categories come from `categorize()` in `server.py`; colors
 and display names are in `CATS` in `js/labels.js`.
+
+## Area-specific assumptions (to generalize later)
+
+Today's code assumes a single area and some US conventions:
+
+- One fixed area per server (`WORLD` in `server.py`); no streaming or chunking yet.
+- The spawn point looks for C Street & 3rd Street (`findSpawn()` in `js/main.js`).
+- The intro text and `WORLD.name` describe downtown Davis.
+- Road markings are US style (double yellow center lines, white stop lines, right-hand traffic
+  for stop-line placement and parked-car direction).
+- Street signs are US-style green blades; sidewalk and lane widths are US defaults.
+- Fallback building heights and styles are tuned for a small US downtown.
 
 ## Gotchas
 

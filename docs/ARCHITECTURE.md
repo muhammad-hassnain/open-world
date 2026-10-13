@@ -11,6 +11,10 @@ flowchart LR
   B --> W[World model] --> G[Generated scene] --> L[Game loop]
 ```
 
+The project aims to cover the whole world; today the server handles one fixed area at a time
+(`WORLD` in `server.py`), currently downtown Davis. The plan for scaling up is in
+[ROADMAP.md](ROADMAP.md).
+
 Two halves:
 
 - **`server.py`** knows about geography: it downloads OSM data for the configured area,

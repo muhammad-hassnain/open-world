@@ -1,9 +1,10 @@
 # Roadmap
 
-The idea: a world that starts as an accurate, stylized model of a real place built from open
-map data, then gets more realistic wherever people contribute real photos and video.
+The idea: an open world of the whole planet. It starts as an accurate, stylized model built from
+open map data, so it can cover anywhere OpenStreetMap does, and gets more realistic wherever
+people contribute real photos and video. Davis, California is the first area.
 
-## Now: stylized downtown from OpenStreetMap
+## Now: stylized downtown Davis from OpenStreetMap
 
 Done:
 
@@ -22,7 +23,25 @@ Candidates for next (not committed to an order):
 - Getting into a parked car and driving.
 - Time of day: sunset, night with lit windows and street lamps.
 - Touch controls for phones and tablets.
-- Bigger areas, loaded in chunks as you walk.
+
+## Next: from one neighborhood to the whole world
+
+Today the server loads one fixed area. Getting to "anywhere" means:
+
+1. **Tiles instead of one box.** Split the world into fixed tiles (for example web-map tiles at
+   a zoom level where a tile is a few hundred meters wide), download and process OSM data per
+   tile, and cache each tile on disk.
+2. **Stream as you move.** Load the tiles around the player and unload far ones; build
+   geometry per tile so loading a tile never stalls the game.
+3. **Precision far from the origin.** Keep a local origin per tile (or move the origin with the
+   player) so coordinates stay small anywhere on Earth.
+4. **Data at planet scale.** The public Overpass API is fine for one town, not for the world.
+   Move to OSM extracts (for example regional files) or pre-built vector tiles, processed by our
+   own server.
+5. **Regional rules.** Driving side, road-marking colors, sign styles, sidewalk and building
+   defaults, and place-name languages differ by country; pick them from the location instead of
+   assuming the US.
+6. **Pick where to go.** Search for a place or pick it on a map, then spawn there.
 
 ## Later: a real-world layer from contributed captures
 
