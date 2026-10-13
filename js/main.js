@@ -147,8 +147,14 @@ function findSpawn(world) {
   const nb = [pts[arm.vi - 1], pts[arm.vi + 1]].filter(Boolean).sort((a, b) => a[1] - b[1])[0];
   const l = Math.hypot(nb[0] - j.x, nb[1] - j.z);
   const tx = (nb[0] - j.x) / l, tz = (nb[1] - j.z) / l;
-  const side = -(arm.road.hw + 1.3 + 0.85); // west sidewalk, next to Central Park
-  return { x: j.x + tx * 16 - tz * side, z: j.z + tz * 16 + tx * side, yaw: Math.atan2(-tx, -tz) };
+  // West side of C Street (next to Central Park): step out from the curb to the first sidewalk.
+  const at = (d) => ({ x: j.x + tx * 16 + tz * d, z: j.z + tz * 16 - tx * d });
+  let spot = at(arm.road.hw + 2.15);
+  for (let d = arm.road.hw + 0.5; d < arm.road.hw + 14; d += 0.5) {
+    const p = at(d);
+    if (world.groundAt(p.x, p.z) > 0) { spot = at(d + 0.6); break; }
+  }
+  return { ...spot, yaw: Math.atan2(-tx, -tz) };
 }
 
 // ---------- input ----------
