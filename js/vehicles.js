@@ -20,6 +20,17 @@ const SPECS = {
 };
 export const VEHICLE_SPECS = SPECS;
 
+// How each car model drives: top speed (m/s), acceleration, steering (x the base), grip (how fast
+// the steering responds), body roll in turns (x), camera distance.
+export const CAR_MODELS = {
+  sedan: { label: 'Sedan', maxFwd: 30, accel: 7, steer: 1, grip: 6, roll: 1, cam: 7.5 },
+  'hatchback-sports': { label: 'Sports hatchback', maxFwd: 40, accel: 11, steer: 1.12, grip: 10, roll: 0.45, cam: 7 },
+  suv: { label: 'SUV', maxFwd: 28, accel: 6, steer: 0.85, grip: 5, roll: 1.5, cam: 8.2 },
+  'suv-luxury': { label: 'Luxury SUV', maxFwd: 35, accel: 8.5, steer: 0.92, grip: 6.5, roll: 1, cam: 8.2 },
+  taxi: { label: 'Taxi', maxFwd: 31, accel: 7, steer: 1, grip: 6, roll: 1, cam: 7.5 },
+  van: { label: 'Van', maxFwd: 23, accel: 4.5, steer: 0.75, grip: 4, roll: 1.9, cam: 9 },
+};
+
 // ---------- car models ----------
 
 const loader = new GLTFLoader();
@@ -138,6 +149,13 @@ export class Vehicle {
     this.kind = kind;
     this.type = kind === 'car' ? (cars.has(type) ? type : [...cars.keys()][0]) : 'bike';
     this.spec = SPECS[kind];
+    if (kind === 'car') {
+      const m = CAR_MODELS[this.type] || CAR_MODELS.sedan;
+      this.spec = { ...SPECS.car, maxFwd: m.maxFwd, accel: m.accel, steerLow: SPECS.car.steerLow * m.steer,
+        steerHigh: SPECS.car.steerHigh * m.steer, grip: m.grip, rollK: m.roll, cam: m.cam, label: m.label };
+    } else {
+      this.spec = { ...SPECS.bike, grip: 6, rollK: 0, cam: 4.5, label: 'Bike' };
+    }
     this.root = new THREE.Group();
     this.tilt = new THREE.Group();  // pitch and roll from the ground
     this.root.add(this.tilt);
@@ -200,7 +218,7 @@ export class Vehicle {
 
     // Steering gets gentler with speed; the handbrake tightens the turn.
     const t = clamp(Math.abs(this.speed) / P.maxFwd, 0, 1);
-    this.steer = damp(this.steer, clamp(ctl.steer || 0, -1, 1) * lerp(P.steerLow, P.steerHigh, t), 6, dt);
+    this.steer = damp(this.steer, clamp(ctl.steer || 0, -1, 1) * lerp(P.steerLow, P.steerHigh, t), P.grip, dt);
     let yawRate = (-this.speed * Math.tan(this.steer)) / P.wheelbase;
     if (ctl.brake && Math.abs(this.speed) > 4) yawRate *= 1.6;
     this.yaw += yawRate * dt;
@@ -223,6 +241,13 @@ export class Vehicle {
       this.hit = Math.max(this.hit || 0, Math.abs(this.speed));
     }
     this.x = x; this.z = z;
+    // Body roll from cornering and pitch from braking/accelerating (visual only).
+    if (this.kind === 'car') {
+      const accel = (this.speed - (this._lastSpeed ?? this.speed)) / Math.max(dt, 1e-3);
+      this._lastSpeed = this.speed;
+      this.bodyRoll = damp(this.bodyRoll || 0, clamp(yawRate * this.speed * 0.012 * P.rollK, -0.1, 0.1), 5, dt);
+      this.bodyPitch = damp(this.bodyPitch || 0, clamp(-accel * 0.006, -0.05, 0.05), 6, dt);
+    }
     this._ground(world, dt);
     this.spin -= (this.speed * dt) / this.wheelR;
     this._sync();
@@ -250,7 +275,7 @@ export class Vehicle {
   _sync() {
     this.root.position.set(this.x, this.y, this.z);
     this.root.rotation.y = this.yaw;
-    this.tilt.rotation.set(this.pitch, 0, this.roll, 'XZY');
+    this.tilt.rotation.set(this.pitch + (this.bodyPitch || 0), 0, this.roll + (this.bodyRoll || 0), 'XZY');
     if (this.kind === 'car') {
       for (const w of this.wheels) {
         w.mesh.rotation.x = -this.spin;

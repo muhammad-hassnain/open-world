@@ -35,8 +35,13 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
   roofs, porches, shutters, balconies, storefronts and awnings, varied building by building.
 - **Real roof colors in the US**: each roof's color is measured from USGS aerial photos.
 - **Cars and bikes**: press `V` for your car or `B` for your bike (or tap Car / Bike), `F` to
-  get in, and drive with `W` `A` `S` `D`; you can also get into any parked car. Arcade handling,
-  real hills, collisions, and other players see you driving.
+  get in, and drive with `W` `A` `S` `D`; you can also get into any parked car or a car from
+  traffic. Six car models drive differently (a sports hatchback up to 144 km/h, a slow van that
+  leans in corners); `V` again next to your car swaps the model. Arcade handling, real hills,
+  collisions, and other players see you driving.
+- **Traffic**: about 20 cars drive the streets around you, keep their distance, slow down at
+  junctions and stop at traffic lights, which cycle where OpenStreetMap maps them (or where
+  main roads cross).
 - **Other players**: everyone online nearby shows up with their name and character, live. You
   start hidden if you began at your own location; `O` (or the Online button) shows or hides you.
 - **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars.
@@ -82,8 +87,8 @@ the address bar keeps your current position so you can share it.
 | Photos of the place you're at | `P` |
 | About, credits and the GitHub link | `I` (also on the pause screen and the globe) |
 | Show or hide yourself to other players | `O` (or the Online button) |
-| Your car / your bike | `V` / `B` |
-| Get in or out (also any parked car) | `F` |
+| Your car / your bike (`V` again: another car model) | `V` / `B` |
+| Get in or out (also any parked or passing car) | `F` |
 | Drive / brake | `W` `A` `S` `D` / `Space` |
 | Map of where you are (pick a spot to walk to) | `M` |
 | Fly out to the globe | `G` |
@@ -136,6 +141,7 @@ js/minimap.js           Rotating minimap from per-chunk canvases
 js/character.js         The player's character (3D models with animations) and its fallback figure
 js/profile.js           The player's name and character, kept on the device
 js/vehicles.js          Cars (CC0 models) and bikes: arcade driving, collisions, the rider
+js/traffic.js           Traffic cars following the streets, and traffic lights
 js/multiplayer.js       Other players: connection to the relay, their characters and name tags
 js/player.js            Movement, collision response, third-person camera
 js/touch.js             Touch controls: fixed joystick with sprint lock, look, pinch zoom, Jump

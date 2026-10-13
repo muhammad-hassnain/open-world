@@ -43,7 +43,7 @@ export class Player {
     vehicle.driver = this;
     this.world.obstacles.delete(vehicle);
     this._walkCam = this.camDist;
-    this.camDist = vehicle.kind === 'car' ? 7.5 : 4.5;
+    this.camDist = vehicle.spec.cam;
     this.camYaw = vehicle.yaw;
     const root = this.char.root;
     this._charParent = root.parent;

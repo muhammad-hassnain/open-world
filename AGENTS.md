@@ -78,6 +78,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
 | `js/character.js` | `Character(look)`: 3D person from `LOOKS` (glTF in `assets/characters/`) with idle/walk/run blended by speed; a procedural figure stands in until it loads; `setLook()` |
 | `js/vehicles.js` | `Vehicle('car' \| 'bike', type)`: Kenney car models (stretched to real size) or a built bicycle; arcade `drive()` with footprint circles against `world.resolveCircle`, ground pitch/roll, bike lean; `loadCars()`, `parkedCarMesh()` for instanced parked cars |
+| `js/traffic.js` | `Traffic`: ~20 instanced cars following car roads via `world.nodes` (across chunks), right-hand lane, junction choice, gap keeping, red lights (`world.signalAt` + `signalState`); `take()` for the player; `buildLights`/`updateLights` for light poles in full chunks |
 | `js/profile.js` | Player name and look in localStorage (`loadProfile`, `saveProfile`, `cleanName`) |
 | `js/player.js` | Movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
 | `js/touch.js` | `TouchControls`: joystick fixed in a bottom corner (held all the way locks a sprint that continues after release until the stick is touched again), look anywhere else, pinch zoom, Jump in the other corner; `setSide('left' \| 'right')` (saved in localStorage); adds `body.touch` / `body.stick-right` |
@@ -200,6 +201,10 @@ in detail data.
   `world.obstacles` (circles) while parked; the one being driven passes itself as `ignore` to
   `resolveCircle`. The rider pose (`RIDE` in `character.js`) rotates bones on top of the idle clip,
   resetting them first because the clip doesn't animate every bone.
+- Traffic lights: `ChunkIndex.signals` (from junctions; mapped `signal` props in detail data, else
+  where two roads of tertiary or higher cross with one secondary or higher). Each controller
+  alternates two axes on a 36 s cycle; `signalState(sig, axis, t)` is the one source of truth for
+  lamps and cars. Car models' handling is `CAR_MODELS` in `vehicles.js`.
 - Terrain PNGs are decoded in `terrain.js` (`decodePNG`), not via a canvas: browsers can
   color-manage canvas images (wide-gamut Macs), and one step in the red channel is 256 m.
 - Multiplayer privacy: a player who started at their own (geolocated) position starts hidden;

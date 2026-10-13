@@ -278,7 +278,7 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
     if (!['residential', 'tertiary', 'unclassified', 'living_street'].includes(r.t) || r.hw < 4.5) continue;
     for (const side of [-1, 1]) {
       for (const s of resample(r.p, 6.3)) {
-        if (R() > 0.42) continue;
+        if (R() > 0.18) continue;  // share of curb spots with a parked car
         const nx = -s.tz * side, nz = s.tx * side;
         const x = s.x + nx * (r.hw - 1.25), z = s.z + nz * (r.hw - 1.25);
         if (!inRect(x, z, rect, -4) || nearIx(x, z, 8) || nearCrossing(x, z, 4.5)) continue;
@@ -326,7 +326,7 @@ function parkingStalls(world, chunk, paint, spots) {
         groundRect(paint, s.x + nx * (near + DEPTH / 2), s.z + nz * (near + DEPTH / 2), nx, nz, DEPTH / 2, 0.06, Y.mark, TINT.white);
         // A car in the stall after this line, nose in.
         const cx = mx + s.tx * STALL / 2, cz = mz + s.tz * STALL / 2;
-        if (R() < 0.55 && inLot(cx, cz) && !world.buildingAt(cx, cz)) spots.cars.push({ x: cx, z: cz, ux: nx, uz: nz, seed: R() });
+        if (R() < 0.3 && inLot(cx, cz) && !world.buildingAt(cx, cz)) spots.cars.push({ x: cx, z: cz, ux: nx, uz: nz, seed: R() });
       }
     }
   }

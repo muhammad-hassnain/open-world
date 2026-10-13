@@ -202,6 +202,19 @@ while driving, chunks are requested ahead in the direction of travel. A car hide
 bike carries the character in a pedaling pose. Other players' vehicles come through the relay
 as a `v` field and are drawn from the same models.
 
+## Traffic (`traffic.js`)
+
+`World` keeps a map of every car-road vertex (`nodes`), filled as chunks are indexed, so traffic
+can follow a road out of one chunk into the next and find the roads meeting at a junction. About
+20 cars are kept 40–220 m around the player (spawned out of sight where possible, removed past
+300 m). Each drives along its road in the right-hand lane at a speed set by the road class,
+picks a way at junctions (mostly straight on), keeps a gap to cars, the player or a parked
+vehicle ahead, slows at junctions without lights and stops at red ones. Lights come from
+`ChunkIndex.signals`; one function, `signalState`, gives the light for an approach at a time, so
+the lamps drawn in full chunks and the cars agree. Traffic cars are drawn as instanced car
+models and are obstacles for the player; the player can get into one (`F`), which takes it out
+of traffic. Traffic is local to each player.
+
 ## Player, camera and HUD
 
 - Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, sprint 9 m/s, jump), collision via

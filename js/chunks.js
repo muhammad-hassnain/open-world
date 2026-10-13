@@ -14,6 +14,7 @@ import { ChunkIndex, classifyRoad, roadHalfWidth } from './world.js';
 import { planBuildings, buildBuildings } from './buildings.js';
 import { buildStreets } from './streets.js';
 import { buildTrees, buildFurniture, buildParkedCars } from './props.js';
+import { buildLights } from './traffic.js';
 import { Budget, SpatialHash, resample, closestOnSeg, pointInShape } from './util.js';
 
 export const FULL_R = 230;   // build full detail for chunks closer than this (meters)
@@ -175,10 +176,12 @@ export class ChunkManager {
       buildFurniture(this.world, ci, streets.spots, group);
       buildParkedCars(this.world, ci, streets.spots, group);
     }
+    const lights = full ? buildLights(this.world, ci, group) : null;
     if (!this._alive(ch)) { disposeGroup(group); return; }
     if (ch.group) { this.scene.remove(ch.group); disposeGroup(ch.group); }
     this.scene.add(group);
     ch.group = group;
+    ch.lights = lights;
     ch.state = level;
     if (full) await this.labels.addChunk(ci, budget);
     else this.labels.removeChunk(ci.key);

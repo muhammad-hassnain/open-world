@@ -56,7 +56,7 @@ export class ChunkIndex {
 
     this.roads = data.roads.map((r, idx) => {
       const kind = classifyRoad(r);
-      return { ...r, idx, kind, hw: roadHalfWidth(r, kind), bbox: bboxOf(r.p) };
+      return { ...r, idx, kind, hw: roadHalfWidth(r, kind), bbox: bboxOf(r.p), chunk: key };
     });
     this.carRoads = this.roads.filter((r) => r.kind === 'car');
     this.roadHash = new SpatialHash(20);
@@ -110,6 +110,7 @@ export class ChunkIndex {
     this.places = data.places || [];
     this.trees = data.trees || [];
     this.props = data.props || [];
+    this.signals = computeSignals(this.junctions, this.props, key);
     this.resetDynamic();
   }
 
@@ -182,6 +183,49 @@ function computeJunctions(roads) {
   return out;
 }
 
+// Traffic lights: at junctions with a mapped signal (detail data), else where main roads cross.
+// Each light controller alternates two axes: roads within ~45° of `ref` and the rest.
+const ROAD_RANK = { motorway: 4, trunk: 4, primary: 4, secondary: 3, tertiary: 2 };
+const SIGNAL_CYCLE = 36;  // seconds: axis 0 green 14, yellow 3, all red 1; then axis 1 the same
+function computeSignals(junctions, props, chunk) {
+  const mapped = props.filter((p) => p.k === 'signal');
+  const out = [];
+  for (const j of junctions) {
+    if (!j.isIx || j.carArms.length < 2) continue;
+    const ranks = j.carArms.map((a) => ROAD_RANK[a.road.t] || 0);
+    const lit = mapped.length
+      ? mapped.some((p) => Math.hypot(p.x - j.x, p.z - j.z) < 18)
+      : ranks.filter((r) => r >= 2).length >= 2 && Math.max(...ranks) >= 3;
+    if (!lit) continue;
+    const arms = [];
+    for (const { road, vi } of j.carArms) {
+      for (const n of [vi + 1, vi - 1]) {
+        if (n < 0 || n >= road.p.length) continue;
+        const dx = road.p[n][0] - j.x, dz = road.p[n][1] - j.z, l = Math.hypot(dx, dz) || 1;
+        arms.push({ ux: dx / l, uz: dz / l, hw: road.hw });
+      }
+    }
+    if (arms.length < 3) continue;
+    const ref = arms[0];
+    for (const a of arms) a.axis = Math.abs(a.ux * ref.ux + a.uz * ref.uz) > 0.7 ? 0 : 1;
+    if (!arms.some((a) => a.axis === 1)) continue;
+    const offset = Math.abs(Math.round(j.x * 7.1 + j.z * 3.7)) % SIGNAL_CYCLE;
+    out.push({ x: j.x, z: j.z, ref, arms, radius: j.radius, offset, chunk });
+  }
+  return out;
+}
+
+// Light for one axis of a controller at time t (seconds): 'green' | 'yellow' | 'red'.
+export function signalState(sig, axis, t) {
+  const half = SIGNAL_CYCLE / 2, local = (((t + sig.offset) % SIGNAL_CYCLE) + SIGNAL_CYCLE) % SIGNAL_CYCLE;
+  const own = axis === 0 ? local : (local + half) % SIGNAL_CYCLE;
+  return own < 14 ? 'green' : own < 17 ? 'yellow' : 'red';
+}
+
+// Junction / signal lookups by position (rounded to half a meter / a meter).
+export const nodeKey = (x, z) => `${Math.round(x * 2)}:${Math.round(z * 2)}`;
+const signalKey = (x, z) => `${Math.round(x)}:${Math.round(z)}`;
+
 // The streamed world: a set of chunk indexes, queried by position.
 export class World {
   constructor(frame, terrain = null) {
@@ -190,13 +234,46 @@ export class World {
     this.chunks = new Map();
     this.placeName = null;
     this.obstacles = new Set();  // things that move between chunks, e.g. parked vehicles: { circles() }
+    this.nodes = new Map();      // nodeKey -> [{ road, k }]: car-road vertices, to follow roads across chunks
+    this.signals = new Map();    // traffic light controllers by position
   }
+
+  signalAt(x, z) { return this.signals.get(signalKey(x, z)) || null; }
 
   // Terrain height relative to the walk-in point (0 when flat or unknown).
   elevation(x, z) { return this.terrain ? this.terrain.at(x, z) : 0; }
 
-  add(ci) { this.chunks.set(ci.key, ci); }
-  remove(key) { this.chunks.delete(key); }
+  add(ci) {
+    this.chunks.set(ci.key, ci);
+    for (const r of ci.carRoads) {
+      r.p.forEach((p, k) => {
+        const id = nodeKey(p[0], p[1]);
+        let list = this.nodes.get(id);
+        if (!list) this.nodes.set(id, list = []);
+        list.push({ road: r, k });
+      });
+    }
+    for (const s of ci.signals) this.signals.set(signalKey(s.x, s.z), s);
+  }
+
+  remove(key) {
+    const ci = this.chunks.get(key);
+    this.chunks.delete(key);
+    if (!ci) return;
+    for (const r of ci.carRoads) {
+      r.dead = true;
+      for (const p of r.p) {
+        const id = nodeKey(p[0], p[1]), list = this.nodes.get(id);
+        if (!list) continue;
+        const rest = list.filter((e) => e.road !== r);
+        if (rest.length) this.nodes.set(id, rest); else this.nodes.delete(id);
+      }
+    }
+    for (const s of ci.signals) {
+      const k = signalKey(s.x, s.z);
+      if (this.signals.get(k) === s) this.signals.delete(k);
+    }
+  }
 
   // Chunk indexes overlapping the box around (x, z) with radius r.
   near(x, z, r = 0) {

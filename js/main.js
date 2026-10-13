@@ -12,7 +12,8 @@ import { Labels, CATS, escapeHtml } from './labels.js';
 import { MiniMap } from './minimap.js';
 import { Terrain } from './terrain.js';
 import { TouchControls } from './touch.js';
-import { Vehicle, loadCars } from './vehicles.js';
+import { Vehicle, loadCars, CAR_TYPES, CAR_MODELS } from './vehicles.js';
+import { Traffic, updateLights } from './traffic.js';
 import { takeParkedCar } from './props.js';
 import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
@@ -139,7 +140,7 @@ scene.add(character.root);
 // ---------- session state ----------
 let mode = 'boot';             // 'globe' | 'loading' | 'street'
 let session = 0;
-let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null;
+let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null;
 let globe = null;
 
 function setMode(m) {
@@ -217,6 +218,8 @@ async function enterStreet(lat, lon, bearing = 0) {
   frame = new Frame(lat, lon);
   const terrain = new Terrain(frame);
   world = new World(frame, terrain);
+  if (traffic) traffic.dispose();
+  traffic = new Traffic({ scene, world });
   mp.setWorld(frame, world);
   labels = new Labels(world, scene, camera, $('tags'));
   labels.onChange = setLabelButtons;
@@ -555,12 +558,27 @@ function summon(kind) {
   const spot = vehicleSpot(kind);
   if (!spot) { flash('No room for a car here'); return; }
   let v = kind === 'car' ? myCar : myBike;
+  // Your car already close by: swap it for the next model.
+  if (v && kind === 'car' && Math.hypot(v.x - player.pos.x, v.z - player.pos.z) < 15) {
+    const next = CAR_TYPES[(CAR_TYPES.indexOf(v.type) + 1) % CAR_TYPES.length];
+    const swapped = new Vehicle('car', next);
+    vehicles.delete(v); world.obstacles.delete(v); scene.remove(v.root); v.dispose();
+    myCar = addVehicle(swapped, v.x, v.z, v.yaw);
+    carFlash(swapped);
+    return;
+  }
   if (v) { world.obstacles.delete(v); v.place(spot.x, spot.z, spot.yaw, world); world.obstacles.add(v); }
   else {
-    v = addVehicle(new Vehicle(kind, 'sedan'), spot.x, spot.z, spot.yaw);
+    v = addVehicle(new Vehicle(kind, CAR_TYPES[0]), spot.x, spot.z, spot.yaw);
     if (kind === 'car') myCar = v; else myBike = v;
   }
-  flash(kind === 'car' ? `Your car is here: ${touch.enabled ? 'tap Get in' : 'press F to get in'}` : `Your bike is here: ${touch.enabled ? 'tap Get on' : 'press F to get on'}`);
+  if (kind === 'car') carFlash(v);
+  else flash(`Your bike is here: ${touch.enabled ? 'tap Get on' : 'press F to get on'}`);
+}
+
+function carFlash(v) {
+  const m = CAR_MODELS[v.type];
+  flash(`${m.label}, top speed ${Math.round(m.maxFwd * 3.6)} km/h · ${touch.enabled ? 'Car again for another model' : 'V again for another model'}`);
 }
 let carsLoadedFlag = false;
 carsReady.then(() => { carsLoadedFlag = true; });
@@ -578,7 +596,9 @@ function vehicleInReach() {
   }
   if (best) return { vehicle: best };
   const parked = carsReadyNow() ? world.parkedCarNear(p.x, p.z, 1.4) : null;
-  return parked ? { parked } : null;
+  if (parked) return { parked };
+  const moving = traffic ? traffic.nearest(p.x, p.z, 1.4) : null;
+  return moving ? { traffic: moving } : null;
 }
 
 function useVehicle() {
@@ -591,6 +611,9 @@ function useVehicle() {
     const c = r.parked;
     v = addVehicle(new Vehicle('car', c.type), c.x, c.z, Math.atan2(-c.ux, -c.uz));
     takeParkedCar(c);
+  } else if (r.traffic) {
+    const t = traffic.take(r.traffic);
+    v = addVehicle(new Vehicle('car', t.type), t.x, t.z, t.yaw);
   }
   player.enter(v);
 }
@@ -601,7 +624,7 @@ function updateDriveHint() {
   let html = '';
   if (player && player.vehicle) {
     const kmh = Math.round(Math.abs(player.vehicle.speed) * 3.6);
-    html = `<b>${kmh}</b> km/h${touch.enabled ? '' : ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> brake'}`;
+    html = `${escapeHtml(player.vehicle.spec.label)} &nbsp; <b>${kmh}</b> km/h${touch.enabled ? '' : ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> brake'}`;
   } else if (player) {
     const r = vehicleInReach();
     if (r) {
@@ -657,7 +680,7 @@ showOnline(mp.status, 0);
 actions.KeyG = () => openGlobe('globe');
 
 // ---------- loop ----------
-let last = performance.now(), hudT = 0, miniT = 0, frames = 0, fpsT = 0, hashT = 0, farT = 0;
+let last = performance.now(), hudT = 0, miniT = 0, frames = 0, fpsT = 0, hashT = 0, farT = 0, lightT = 0;
 let cardId = null;
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
@@ -714,6 +737,13 @@ function loop(now) {
     farGround.position.z = p.z;
     labels.update(dt, p.x, p.z);
     mp.update(dt, player);
+    traffic.update(dt, player);
+    if (player.vehicle) traffic.bump(player.vehicle.x, player.vehicle.z, 0);
+    lightT -= dt;
+    if (lightT <= 0) {
+      lightT = 0.2;
+      for (const ch of chunks.chunks.values()) if (ch.lights && ch.state === 'full') updateLights(ch.lights, traffic.time);
+    }
 
     hudT -= dt;
     if (hudT <= 0) {
@@ -761,6 +791,7 @@ window.game = {
   openGlobe, enterStreet,
   get spawn() { return spawn; },
   vehicles,
+  get traffic() { return traffic; },
   get profile() { return profile; },
   mp,
   character,
