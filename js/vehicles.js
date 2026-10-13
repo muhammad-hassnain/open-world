@@ -50,7 +50,7 @@ const cars = new Map();  // type -> { body: geometry, wheels: [{ name, geometry,
 export function loadCars() {
   if (carsPromise) return carsPromise;
   carsPromise = Promise.all(MODEL_FILES.map((t) => loader.loadAsync(`assets/vehicles/${t}.glb`).then((g) => {
-    const out = { wheels: [] };
+    const out = { wheels: [] }, parts = [];
     g.scene.updateMatrixWorld(true);
     g.scene.traverse((o) => {
       if (!o.isMesh) return;
@@ -64,12 +64,17 @@ export function loadCars() {
         const p = o.getWorldPosition(new THREE.Vector3()).multiply(BODY_SCALE);
         out.wheels.push({ name: o.name, geometry: geo, position: p });
       } else {
+        // Everything that isn't a wheel is body (some models add a grille or spoiler).
         geo.applyMatrix4(o.matrixWorld);
         geo.scale(BODY_SCALE.x, BODY_SCALE.y, BODY_SCALE.z);
-        out.body = geo;
+        parts.push(geo.index ? geo.toNonIndexed() : geo);
       }
     });
-    if (out.body) cars.set(t, out);
+    if (parts.length) {
+      out.body = parts.length > 1 ? mergeGeometries(parts, false) : parts[0];
+      out.body.userData.shared = true;
+      cars.set(t, out);
+    }
   }).catch((e) => console.warn(`Car ${t} didn't load: ${e.message}`)))).then(() => cars);
   return carsPromise;
 }
@@ -90,6 +95,47 @@ export function parkedCarMesh(type) {
     parked.set(type, { geometry: g, material: c.material });
   }
   return parked.get(type);
+}
+
+// ---------- car lights ----------
+
+// Headlights and taillights, shared by every car; bright at night (setCarLights).
+const HEAD = new THREE.MeshBasicMaterial({ color: '#fff6e0', toneMapped: false });
+const TAIL = new THREE.MeshBasicMaterial({ color: '#ff2a1a', toneMapped: false });
+HEAD.userData.shared = TAIL.userData.shared = true;
+const HEAD_ON = new THREE.Color('#fff6e0').multiplyScalar(3), HEAD_OFF = new THREE.Color('#cfd3d6');
+const TAIL_ON = new THREE.Color('#ff2a1a').multiplyScalar(2.2), TAIL_OFF = new THREE.Color('#7a1d16');
+export function setCarLights(on) {
+  HEAD.color.copy(on ? HEAD_ON : HEAD_OFF);
+  TAIL.color.copy(on ? TAIL_ON : TAIL_OFF);
+}
+setCarLights(false);
+
+// Light geometry for a car model (front +Z, as in the model files): { head, tail }.
+const lightGeo = new Map();
+function carLights(type) {
+  if (!lightGeo.has(type)) {
+    const b = cars.get(type).body;
+    b.computeBoundingBox();
+    const { min, max } = b.boundingBox, hw = (max.x - min.x) / 2, y = min.y + (max.y - min.y) * 0.42;
+    const pair = (z, w, h) => mergeGeometries([-1, 1].map((s) => new THREE.BoxGeometry(w, h, 0.05).translate(s * hw * 0.68, y, z)));
+    const g = { head: pair(max.z + 0.02, 0.32, 0.14), tail: pair(min.z - 0.02, 0.3, 0.12) };
+    g.head.userData.shared = g.tail.userData.shared = true;
+    lightGeo.set(type, g);
+  }
+  return lightGeo.get(type);
+}
+
+// The same, rotated to point along +X like parkedCarMesh(), for instanced traffic.
+const parkedLights = new Map();
+export function parkedCarLights(type) {
+  if (!parkedLights.has(type)) {
+    const g = carLights(type);
+    const r = { head: g.head.clone().rotateY(Math.PI / 2), tail: g.tail.clone().rotateY(Math.PI / 2), headMat: HEAD, tailMat: TAIL };
+    r.head.userData.shared = r.tail.userData.shared = true;
+    parkedLights.set(type, r);
+  }
+  return parkedLights.get(type);
 }
 
 // ---------- bicycle model ----------
@@ -202,6 +248,8 @@ export class Vehicle {
       this.wheels.push({ pivot, mesh, front: w.name.includes('front') });
     }
     this.wheelR = 0.3 * WHEEL_SCALE;
+    const lg = carLights(m.model || this.type);
+    model.add(new THREE.Mesh(lg.head, HEAD), new THREE.Mesh(lg.tail, TAIL));
     this.tilt.add(model);
     if (m.police) this._lightBar(c);
   }
