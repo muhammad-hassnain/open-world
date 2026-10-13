@@ -23,8 +23,11 @@ const DROP_R = 900;          // unload chunks farther than this
 const SHIFT = CHUNK_ZOOM - DATA_ZOOM;
 
 export class ChunkManager {
-  constructor({ frame, world, scene, labels, minimap, materials }) {
-    Object.assign(this, { frame, world, scene, labels, minimap, materials });
+  constructor({ frame, world, scene, labels, minimap, materials, terrain = null }) {
+    Object.assign(this, { frame, world, scene, labels, minimap, materials, terrain });
+    // Heights are measured from the walk-in point, so its terrain must load before anything is built.
+    const o = frame.tileAt(0, 0, DATA_ZOOM);
+    this.terrainReady = terrain ? terrain.ensure(o.x, o.y).then(() => terrain.setBaseAt(0, 0)) : Promise.resolve();
     this.tiles = new Map();
     this.chunks = new Map();
     this.player = { x: 0, z: 0 };
@@ -121,7 +124,8 @@ export class ChunkManager {
       const n = 2 ** DATA_ZOOM;
       const [lat, lon] = fromMerc((tx + 0.5) / n, (ty + 0.5) / n);
       const aerial = aerialCovers(lat, lon) ? fetchAerial(DATA_ZOOM, tx, ty) : Promise.resolve(null);
-      this.tiles.set(key, Promise.all([fetchTile(DATA_ZOOM, tx, ty), aerial])
+      const heights = this.terrain ? this.terrain.ensure(tx, ty) : null;
+      this.tiles.set(key, Promise.all([fetchTile(DATA_ZOOM, tx, ty), aerial, heights])
         .then(([raw, img]) => {
           const d = prepareTile(toLocal(raw, this.frame.tileProjector(DATA_ZOOM, tx, ty, raw.extent || 4096)));
           if (img) sampleRoofs(img, d.buildings, this.frame.tileRect(DATA_ZOOM, tx, ty));
@@ -137,6 +141,7 @@ export class ChunkManager {
   }
 
   async _index(ch) {
+    await this.terrainReady;
     const tile = await this._tile(ch.tx >> SHIFT, ch.ty >> SHIFT);
     if (this.disposed || this.chunks.get(ch.key) !== ch) return;
     const ci = new ChunkIndex(ch.key, ch.rect, clipData(tile, ch.rect));

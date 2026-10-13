@@ -39,14 +39,15 @@ function assets() {
   return ASSETS;
 }
 
-const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpS = new THREE.Vector3(), tmpP = new THREE.Vector3();
-const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpT = new THREE.Quaternion(), tmpS = new THREE.Vector3(), tmpP = new THREE.Vector3();
+const Y_AXIS = new THREE.Vector3(0, 1, 0), Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 function instanced(geom, material, items, { cast = true, colors = null } = {}) {
   const mesh = new THREE.InstancedMesh(geom, material, Math.max(1, items.length));
   mesh.count = items.length;
   items.forEach((it, i) => {
     tmpQ.setFromAxisAngle(Y_AXIS, it.rot || 0);
+    if (it.tilt) tmpQ.multiply(tmpT.setFromAxisAngle(Z_AXIS, it.tilt)); // nose up/down along local +X
     tmpS.set(it.s ?? 1, it.s ?? 1, it.s ?? 1);
     tmpP.set(it.x, it.y || 0, it.z);
     tmpM.compose(tmpP, tmpQ, tmpS);
@@ -112,7 +113,7 @@ export async function buildTrees(world, chunk, spots, group, budget) {
       const x = a.bbox.minX + R() * (a.bbox.maxX - a.bbox.minX);
       const z = a.bbox.minZ + R() * (a.bbox.maxZ - a.bbox.minZ);
       if (!inRect(x, z, rect, -1) || !pointInShape(x, z, a.o, a.i)) continue;
-      if (world.buildingAt(x, z) || world.onRoad(x, z, 2) || world.groundAt(x, z) > 0) continue;
+      if (world.buildingAt(x, z) || world.onRoad(x, z, 2) || world.onSidewalk(x, z)) continue;
       if (sports.some((p) => pointInShape(x, z, p.o, p.i))) continue;
       if (world.nearPath(x, z, 2.2) || !free(x, z, 5.5)) continue;
       add({ x, z, kind: R() < 0.15 ? 'conifer' : R() < 0.3 ? 'tall' : 'round', s: 0.9 + R() * 0.6 });
@@ -123,6 +124,7 @@ export async function buildTrees(world, chunk, spots, group, budget) {
 
   for (const t of accepted) {
     t.rot = R() * Math.PI * 2;
+    t.y = world.groundAt(t.x, t.z) - 0.05;
     chunk.addCircleCollider(t.x, t.z, 0.22 * t.s);
   }
   group.add(instanced(A.geo.trunk, A.trunk, accepted));
@@ -239,7 +241,8 @@ export function buildParkedCars(world, chunk, spots, group) {
   const items = [];
   for (const c of spots.cars) {
     if (world.blocked(c.x, c.z, 1.0)) continue;
-    items.push({ x: c.x, z: c.z, rot: yawX(c.ux, c.uz), seed: c.seed });
+    const front = world.elevation(c.x + c.ux * 2, c.z + c.uz * 2), back = world.elevation(c.x - c.ux * 2, c.z - c.uz * 2);
+    items.push({ x: c.x, z: c.z, y: (front + back) / 2, rot: yawX(c.ux, c.uz), tilt: Math.atan2(front - back, 4), seed: c.seed });
     chunk.addBoxCollider(c.x, c.z, c.ux, c.uz, 2.2, 0.95);
   }
   if (!items.length) return items;

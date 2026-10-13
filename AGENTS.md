@@ -9,8 +9,8 @@ An open world of the whole planet built from OpenStreetMap data. A MapLibre glob
 any place; "Walk here" builds a realistic, walkable 3D neighborhood around that point and streams
 more as you move. Everything runs in the browser (plain ES modules + three.js 0.160.1 +
 MapLibre 5.24.0, no build step): it downloads OpenFreeMap vector tiles (or, for selected tiles,
-richer pre-built OpenStreetMap data from `data/detail/`), cuts them into chunks and generates
-streets, buildings, trees, signs and props. `serve.py` only serves files. Design for
+richer pre-built OpenStreetMap data from `data/detail/`) and elevation tiles, cuts them into
+chunks and generates streets, buildings, trees, signs and props on the real terrain. `serve.py` only serves files. Design for
 "anywhere": Davis is the starting point, not a special case.
 
 ## Run
@@ -62,6 +62,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/materials.js` | Shared `MeshStandardMaterial`s: textured (with `userData.scale` = meters per texture repeat) and plain/paint/glass/water |
 | `js/aerial.js` | USGS aerial image per z14 tile (US only) → median roof color `rc` per building |
 | `js/geo.js` | Web Mercator math, `Frame` (local meters around the walk-in point), tile rectangles; `DATA_ZOOM` 14, `CHUNK_ZOOM` 16 |
+| `js/terrain.js` | `Terrain`: loads Terrarium elevation PNGs (z15) per z14 tile, bilinear `at(x, z)` relative to the walk-in point, `water(x, z)` clamped to sea level |
 | `js/tiledata.js` | Fetch a z14 tile: detail JSON if listed in `data/detail/index.json`, else OpenFreeMap; OpenMapTiles → common format; `toLocal` |
 | `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
 | `js/chunks.js` | `ChunkManager`: which chunks to load/build/drop, tile prep (T-junction repair, road-width fitting, footway classification), clipping, builds |
@@ -92,6 +93,7 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
   detail data (sidewalk tags, opening hours, trees) needs a fallback for vector tiles.
 - **Coordinates are meters** in the current `Frame`: origin at the walk-in point, `+x` east,
   `+z` south, `+y` up. Tile data arrives in tile units and is converted with `toLocal`.
+  `y = 0` is the ground at the walk-in point; heights elsewhere come from `world.elevation(x, z)`.
 - **Polygon orientation:** `orient()` makes outer rings counter-clockwise seen from above
   (negative shoelace area in x,z) and holes clockwise; the outward normal of edge `a → b` is
   `(-dz, dx)`. Wall and facade code depends on this.
@@ -101,8 +103,14 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
   Static scenery is merged with `GeoBuilder`; repeated objects use shared geometry/materials
   (`userData.shared = true`, never disposed) in an `InstancedMesh`. Everything else created for a
   chunk is disposed when the chunk is rebuilt or dropped.
-- **Flat layers** (ground, areas, roads, markings) are separated by small heights (`Y` table in
-  `streets.js`) and rely on the logarithmic depth buffer.
+- **Everything sits on the terrain.** Ground layers (ground, areas, roads, markings) go through a
+  `MultiBuilder` with `drape`, which subdivides triangles to `maxEdge` and adds the elevation;
+  write them flat (small `Y` offsets from `streets.js`) and let the drape lift them. Their draw
+  order on slopes comes from `layered()` in `materials.js` (a depth bias toward the camera), so
+  a new ground material needs a layer there; `polygonOffset` does not work with the logarithmic
+  depth buffer. Buildings use `mb.setYOffset(b.base)`: one base per building, foundations
+  below. Props, labels and anything else placed in the world add `world.groundAt` or
+  `world.elevation`. Test "is this a sidewalk" with `world.onSidewalk`, never `groundAt > 0`.
 - **Custom shaders** must include `#include <colorspace_fragment>` on its own line.
 - **Text in any script.** Names can be Arabic, Urdu, Hebrew, CJK, etc. HTML and canvas text
   are shaped by the browser; map labels need MapLibre's RTL plugin (already loaded).
@@ -115,8 +123,8 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
 - **Detail data:** if you change the Overpass query or processors in `tools/build_detail.py`,
   bump `PROCESS_VERSION` and rebuild (`python3 tools/build_detail.py --force`).
 - **Credits must stay visible:** `#attrib` (street view) and MapLibre's attribution (globe)
-  are license requirements for OpenStreetMap/OpenMapTiles/OpenFreeMap data; keep the Nominatim
-  credit under the search box.
+  are license requirements for OpenStreetMap/OpenMapTiles/OpenFreeMap data and the elevation
+  sources (Terrain Tiles link); keep the Nominatim credit under the search box.
 - **Commits and PRs:** short descriptive messages about the change. Do not add co-author
   trailers, "generated with" lines, or any tool attribution.
 
@@ -161,6 +169,9 @@ in detail data.
 - Headless Chromium needs `--use-angle=gl-egl` to use the GPU on Linux. After many screenshots
   in one browser session `page.screenshot` can hang; `tools/screenshot.py` uses a fresh browser
   per view. MapLibre logs harmless "performance warning: READ-usage buffer" messages there.
+- Terrain is a bare-earth model from 30 m (most of the world) to 3–10 m (US) data. Bridges and
+  overpasses aren't in it and still follow the ground; tunnels are skipped. Hilly chunks have
+  about 40% more triangles because the ground is subdivided to 5 m; flat chunks use 40 m.
 - Roof colors need the USGS imagery export (US only); it adds a few seconds to the first load of
   each tile and has a 10 s timeout, after which roofs keep generated colors.
 - Nominatim allows about one request per second; search only runs on submit and reverse

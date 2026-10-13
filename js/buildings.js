@@ -43,6 +43,7 @@ const TRIM = col('#f7f5ef');
 const GLASS = col('#5f7d92');
 const GLASS_SHOP = col('#86a5b6');
 const PLINTH = col('#8d8a84');
+const FOUNDATION = new THREE.Color(0.78, 0.77, 0.75);
 
 function weighted(list, r) {
   const total = list.reduce((s, [, w]) => s + w, 0);
@@ -175,9 +176,15 @@ export async function planBuildings(world, list, { streets = true, rect = null, 
     const r = hash01(b.id % 100000);
     b.style = styleOf(b);
     Object.assign(b, layout(b, b.style, r));
+    // Sit level at the highest ground under the footprint (or the middle on very steep lots);
+    // the downhill side gets a foundation down to the slope.
+    let minE = world.elevation(b.cx, b.cz), maxE = minE;
+    for (const q of b.outer) { const e = world.elevation(q[0], q[1]); if (e < minE) minE = e; if (e > maxE) maxE = e; }
+    b.base = maxE - minE > 6 ? (minE + maxE) / 2 : maxE;
     b.height = b.h;
-    b.top = b.h;
+    b.top = b.base + b.h;
     b.edges = edgesOf(b.outer, rect);
+    for (const e of b.edges) { e.ga = world.elevation(e.ax, e.az) - b.base; e.gb = world.elevation(e.bx, e.bz) - b.base; }
     b.front = null;
     if (!streets) continue;
     for (const e of b.edges) {
@@ -235,6 +242,7 @@ export async function buildBuildings(list, materials, { lite = false, rect = nul
     const r = (k) => hash01((b.id % 100000) * 7.13 + k);
     const look = lookOf(b, r);
     const h = b.h, y0 = b.minH || 0;
+    mb.setYOffset(b.base || 0);
 
     if (b.style === 'canopy') {
       const g = mb.get('plain');
@@ -258,11 +266,18 @@ export async function buildBuildings(list, materials, { lite = false, rect = nul
       }
     }
     if (y0 > 0) mb.get('plain').polygon(b.outer, b.holes, y0, shade(look.wall, 0.7), -1);
+    // Foundation where the ground drops below the building's base.
+    const found = mb.get('concrete');
+    for (const e of b.edges) {
+      if (e.seam || e.ga === undefined || Math.min(e.ga, e.gb) > -0.05) continue;
+      found.uvWall(e.dx, e.dz);
+      found.quad([e.ax, Math.min(0, e.ga) - 0.3, e.az], [e.bx, Math.min(0, e.gb) - 0.3, e.bz], [e.bx, y0, e.bz], [e.ax, y0, e.az], FOUNDATION, [e.nx, 0, e.nz]);
+    }
 
     const box = !b.clipped && orientedBox(b.outer);
     const rectish = box && b.area / Math.max(1, box.area) > 0.82 && box.hv > 1.5;
     if ((b.style === 'house' || b.style === 'church') && rectish) {
-      b.top = pitchedRoof(mb, look.roofKey, box, h, b.style === 'house' ? 0.45 : 0.3, b.style === 'house' ? 0.5 : 0.95,
+      b.top = (b.base || 0) + pitchedRoof(mb, look.roofKey, box, h, b.style === 'house' ? 0.45 : 0.3, b.style === 'house' ? 0.5 : 0.95,
         look.gable, look.roofCol, look.trim, look.wallKey, look.wall);
     } else {
       const roofKey = b.style === 'house' ? look.roofKey : 'gravel';

@@ -181,11 +181,15 @@ function computeJunctions(roads) {
 
 // The streamed world: a set of chunk indexes, queried by position.
 export class World {
-  constructor(frame) {
+  constructor(frame, terrain = null) {
     this.frame = frame;
+    this.terrain = terrain;
     this.chunks = new Map();
     this.placeName = null;
   }
+
+  // Terrain height relative to the walk-in point (0 when flat or unknown).
+  elevation(x, z) { return this.terrain ? this.terrain.at(x, z) : 0; }
 
   add(ci) { this.chunks.set(ci.key, ci); }
   remove(key) { this.chunks.delete(key); }
@@ -220,13 +224,25 @@ export class World {
     return b && b.solid ? b.top || b.height : 0;
   }
 
+  // Height of the walkable surface: terrain, plus the curb height on sidewalks.
   groundAt(x, z) {
+    const e = this.elevation(x, z);
     for (const c of this.near(x, z)) {
       for (const s of c.raised.near(x, z, 0)) {
-        if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d <= s.hw) return SIDEWALK_Y;
+        if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d <= s.hw) return e + SIDEWALK_Y;
       }
     }
-    return 0;
+    return e;
+  }
+
+  // True on a raised sidewalk.
+  onSidewalk(x, z) {
+    for (const c of this.near(x, z)) {
+      for (const s of c.raised.near(x, z, 0)) {
+        if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d <= s.hw) return true;
+      }
+    }
+    return false;
   }
 
   nearestRoad(x, z, maxD = 40, filter = (r) => r.kind === 'car') {

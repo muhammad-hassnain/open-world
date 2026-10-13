@@ -21,6 +21,9 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
   **Walk here**. Press `G` to fly back out. The world streams in around you as you walk.
 - **Third-person character** with walk, run and jump animations, an over-the-shoulder camera
   that avoids walls, and collision with buildings, trees, lamps and parked cars.
+- **Real terrain**: streets, buildings and parks follow the ground, so San Francisco's hills
+  climb and Montmartre rises to Sacré-Cœur. Elevation comes from open terrain tiles covering
+  the whole planet.
 - **Streets from real data**: road widths fitted to the buildings around them, cracked asphalt,
   center lines, stop lines, crosswalks, concrete sidewalks with curbs, footpaths, bike paths,
   parks, water, and parking lots with painted stalls.
@@ -79,6 +82,7 @@ Globe (MapLibre + OpenFreeMap) ──"Walk here"──▶ street world at that p
  data/detail/*.json (pre-built richer areas) ────┘  cuts them into ~500 m chunks and
                                                     builds streets, buildings and props
                                                     around the player as they move
+ Terrain Tiles (elevation PNGs) ──────────────────▶ everything is draped on the ground
 ```
 
 Everything runs in the browser; `serve.py` is a plain file server. See
@@ -94,6 +98,7 @@ js/globe.js             MapLibre globe, place search and reverse geocoding (Nomi
 js/materials.js         Shared textured materials (CC0 textures in assets/textures)
 js/aerial.js            Roof colors sampled from USGS aerial imagery (US only)
 js/geo.js               Web Mercator tiles and the local metric frame around the walk-in point
+js/terrain.js           Elevation from Terrain Tiles (Terrarium PNGs), sampled per point
 js/tiledata.js          Load a tile (vector or detail) and convert it to the common format
 js/mvt.js               Minimal Mapbox Vector Tile decoder
 js/chunks.js            Streaming: tile prep, clipping into chunks, full/lite builds, unloading
@@ -145,6 +150,9 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
 - Material textures from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com),
   CC0 ([list](assets/textures/CREDITS.md)). Roof colors from USGS/USDA orthoimagery
   ([The National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map)), public domain.
+- Elevation from [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS (Mapzen;
+  USGS 3DEP, SRTM, GMTED2010, ETOPO1, EU-DEM and national datasets); the full required
+  attribution is in [docs/DATA.md](docs/DATA.md#elevation).
 - Rendering by [three.js](https://threejs.org) (MIT) and [MapLibre GL JS](https://maplibre.org)
   (BSD), loaded from unpkg.
 - Code is released under the [MIT License](LICENSE).

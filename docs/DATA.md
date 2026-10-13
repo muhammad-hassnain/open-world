@@ -10,7 +10,9 @@ All map data comes from [OpenStreetMap](https://www.openstreetmap.org) and is
 | [OpenFreeMap](https://openfreemap.org) vector tiles, [OpenMapTiles](https://openmaptiles.org/schema/) schema | The whole planet, updated weekly | z14 `.pbf` tiles fetched by the browser | Building footprints with heights/colours, roads by class with names, landcover/landuse, water, named places, neighborhoods |
 | Detail tiles from `tools/build_detail.py` (Overpass API) | Tiles listed in `DETAIL_TILES` (downtown Davis today) | `data/detail/14/<x>/<y>.json` + `data/detail/index.json` | Everything above plus building types, mapped sidewalks/crossings, lanes/width tags, trees, benches, lamps, hydrants, addresses, opening hours, cuisine, websites |
 
-Both are converted to the **common format** below, with coordinates in tile units
+Elevation is separate from the map data; see [Elevation](#elevation).
+
+Both map sources are converted to the **common format** below, with coordinates in tile units
 (`0..extent`, y pointing south) and then to meters by `toLocal()` in `js/tiledata.js`.
 
 ## Common tile format
@@ -79,6 +81,36 @@ Detail files also carry `"version"` (`PROCESS_VERSION` of the build tool) and `"
 - **Tree**: `[x, z, leaf, height]`, `leaf` 0 unknown / 1 broadleaved / 2 needleleaved (detail only).
 - **Prop**: `{ k, x, z, dir? }`, `k` one of `bench`, `bikerack`, `lamp`, `bin`, `hydrant`,
   `postbox`, `fountain`, `stop`, `signal` (detail only).
+
+## Elevation
+
+[Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (originally made by Mapzen, hosted
+on AWS Open Data) at `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png`,
+fetched by the browser at zoom 15. Each pixel's height in meters is `R·256 + G + B/256 − 32768`.
+Resolution depends on the source: 3–10 m in the US (USGS 3DEP), about 30 m in most of the world
+(SRTM), coarser at high latitudes. It is a terrain model: buildings and trees are not in it, and
+bridges and overpasses are not either.
+
+Required attribution (shown in game as a link):
+
+* ArcticDEM terrain data DEM(s) were created from DigitalGlobe, Inc., imagery and funded under
+  National Science Foundation awards 1043681, 1559691, and 1542736;
+* Australia terrain data © Commonwealth of Australia (Geoscience Australia) 2017;
+* Austria terrain data © offene Daten Österreichs – Digitales Geländemodell (DGM) Österreich;
+* Canada terrain data contains information licensed under the Open Government Licence – Canada;
+* Europe terrain data produced using Copernicus data and information funded by the European
+  Union - EU-DEM layers;
+* Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration;
+* Mexico terrain data source: INEGI, Continental relief, 2016;
+* New Zealand terrain data Copyright 2011 Crown copyright (c) Land Information New Zealand and
+  the New Zealand Government (All rights reserved);
+* Norway terrain data © Kartverket;
+* United Kingdom terrain data © Environment Agency copyright and/or database right 2015. All
+  rights reserved;
+* United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the
+  U.S. Geological Survey.
+
+Source: [tilezen/joerd attribution](https://github.com/tilezen/joerd/blob/master/docs/attribution.md).
 
 ## What the game adds that isn't in the data
 

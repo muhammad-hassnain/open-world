@@ -178,7 +178,7 @@ export class Labels {
         item.nx = e.nx; item.nz = e.nz;
         if (b.style === 'shopfront' || b.style === 'civic' || b.style === 'apartments' || b.style === 'warehouse') {
           item.signKind = 'wall';
-          item.y = b.style === 'shopfront' ? Math.min(b.groundH - 0.6, b.h - 0.6) : Math.min(3.4, b.h - 0.7);
+          item.y = (b.base || 0) + (b.style === 'shopfront' ? Math.min(b.groundH - 0.6, b.h - 0.6) : Math.min(3.4, b.h - 0.7));
         } else {
           item.signKind = 'lawn';
           const yard = e.road ? e.roadDist - e.road.hw - 3.5 : 3;
@@ -206,7 +206,7 @@ export class Labels {
     const face = w.nearestRoad(x, z, 120);
     const fx = face ? face.x - x : 0, fz = face ? face.z - z : 1, fl = Math.hypot(fx, fz) || 1;
     item.nx = fx / fl; item.nz = fz / fl;
-    item.tagY = 2.6;
+    item.tagY = w.groundAt(x, z) + 2.6;
   }
 
   _applyEdgePos(item) {
@@ -217,7 +217,7 @@ export class Labels {
       item.tagY = item.y + 0.9;
     } else {
       item.x = ex + e.nx * item.off; item.z = ez + e.nz * item.off;
-      item.tagY = 2.3;
+      item.tagY = this.world.groundAt(item.x, item.z) + 2.3;
     }
   }
 
@@ -420,7 +420,7 @@ export class Labels {
           if (!best || q.d < best.d) best = q;
         }
       }
-      if (best && best.d < 45) cands.push({ key: `s:${name}`, street: name, d: best.d, x: best.x, y: 3.2, z: best.z });
+      if (best && best.d < 45) cands.push({ key: `s:${name}`, street: name, d: best.d, x: best.x, y: this.world.elevation(best.x, best.z) + 3.2, z: best.z });
     }
     cands.sort((a, b) => a.d - b.d);
 

@@ -7,6 +7,7 @@ flowchart LR
   G[Globe: MapLibre + OpenFreeMap style] -->|Walk here: lat, lon| F[Frame: local meters]
   VT[(OpenFreeMap vector tiles)] --> T[tiledata.js]
   DT[(data/detail/*.json)] --> T
+  TT[(Terrain Tiles)] --> E[terrain.js] --> C
   T -->|common format, meters| C[ChunkManager]
   C -->|clip per chunk| I[ChunkIndex] --> W[World queries]
   C -->|build full / lite| S[Scene] --> L[Game loop]
@@ -46,6 +47,39 @@ For each z14 tile:
 
 Both produce the same common format in tile units ([DATA.md](DATA.md)); `toLocal()` converts it
 to meters in the current frame. The browser's HTTP cache keeps tiles for revisits.
+
+## Terrain (`terrain.js`)
+
+Elevation comes from [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS in the
+Terrarium encoding (PNG, `height = R·256 + G + B/256 − 32768` meters) at zoom 15: about 4.8 m per
+pixel at the equator. Its sources are USGS 3DEP in the US (≈3–10 m) and SRTM/GMTED elsewhere
+(≈30–90 m). Each z14 data tile loads its four z15 elevation tiles alongside the map data; the
+walk-in tile is loaded first so the frame's base height is known before anything is built.
+
+`Terrain.at(x, z)` interpolates bilinearly and returns meters **relative to the walk-in point**,
+so `y = 0` is the ground where you entered. `water(x, z)` is the same but never below sea
+level (elevation data under the sea is the sea floor). Missing tiles count as unknown and the
+neighbors' heights are used; where nothing is known the world is flat.
+
+How builders use it:
+
+- **Ground layers** (ground, areas, roads, sidewalks, markings) are written through a draping
+  `GeoBuilder`: every triangle is split until no edge is longer than `maxEdge`, and each vertex
+  gets the terrain height added. Edges are split by their own length only, so two triangles
+  sharing an edge split it the same way and there are no cracks. `maxEdge` comes from the
+  chunk's measured relief (40 m when flat, 12 m when gentle, 5 m when hilly; doubled in lite
+  chunks), so flat cities don't pay for hills.
+- Layers cut into different triangles can cross each other by a few centimeters on slopes.
+  Instead of raising them, each ground material is drawn slightly toward the camera along the
+  view ray (`layered()` in `materials.js`), in order ground < grass/water < gravel/lots/pavers <
+  roads < sidewalks < paint. `polygonOffset` doesn't work with the logarithmic depth buffer.
+- **Buildings** stand on one base height: the highest ground under the footprint, or the middle
+  of the range on steep lots (more than 6 m of fall), so they never float. Walls on the downhill
+  side get a concrete foundation down to the ground. `b.base` and `b.top` are absolute heights.
+- **Props** sit on `groundAt`; parked cars are tilted to the slope along the curb.
+- **Labels** and street signs add the ground height at their position.
+
+Bridges and elevated highways still follow the ground (see the roadmap); tunnels are not drawn.
 
 ## Roof colors (`aerial.js`)
 
@@ -94,7 +128,9 @@ grid. Main queries:
 | Method | Answers |
 | --- | --- |
 | `resolveCircle(x, z, r)` | Pushes a circle out of building/car polygons and round colliders. Used for movement. |
-| `groundAt(x, z)` | `0.15` on a raised sidewalk, else `0`. Used for curb stepping. |
+| `elevation(x, z)` | Terrain height relative to the walk-in point (`0` without terrain). |
+| `groundAt(x, z)` | Walkable surface height: elevation, plus `0.15` on a raised sidewalk. Used for movement and placing props. |
+| `onSidewalk(x, z)` | Whether a point is on a raised sidewalk (use this, not `groundAt > 0`, which is meaningless on hills). |
 | `buildingAt`, `heightAt` | Building under a point and its height. Camera and label occlusion. |
 | `nearestRoad`, `onRoad`, `nearPath`, `nearSidewalk` | Street geometry lookups used by builders and HUD. |
 | `locate(x, z)` | Street, cross street, and area (named park, OSM neighborhood, or reverse-geocoded name). |
@@ -120,7 +156,7 @@ grid. Main queries:
 ## Player, camera and HUD
 
 - Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, jump), collision via
-  `resolveCircle`, curbs via `groundAt`, no world bounds (chunks stream ahead of you).
+  `resolveCircle`, slopes and curbs via `groundAt`, no world bounds (chunks stream ahead of you).
 - Third-person camera with shoulder offset; it pulls in before any wall between head and camera.
 - Spawn (`findSpawn`): nearest street to the chosen point → its sidewalk, else the street edge,
   else open ground; facing along the street in the direction closest to the map's bearing.
@@ -140,6 +176,7 @@ world position, so textures line up across faces and chunk borders.
 
 One WebGL renderer with ACES tone mapping, an environment map baked from the sky gradient, logarithmic depth, PCF soft shadows from a sun that follows the player
 (±60 m), hemisphere light, gradient sky dome, fog from 120 to 620 m and a large ground plane under
-everything. Typical cost: 100–200 draw calls (one per material per chunk) and 0.4–1.1M triangles at 60 fps on a
-desktop GPU; a z14 tile decodes in 40–140 ms. The three.js loop stops rendering while the globe
+everything, kept just below the lowest nearby terrain so it never shows above a valley. Typical
+cost: 100–200 draw calls (one per material per chunk) and 0.4–1.1M triangles in flat cities
+(1.5–2.8M on steep hills) at 60 fps on a desktop GPU; a z14 tile decodes in 40–140 ms. The three.js loop stops rendering while the globe
 is open.

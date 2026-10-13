@@ -15,7 +15,7 @@ const TINT = {
 };
 export const GROUND_COLOR = '#7f9a5a';
 const AREA_MATERIAL = {
-  grass: 'grass', wood: 'grass', pitch: 'grass', farm: 'grass', sand: 'gravel', playground: 'gravel', track: 'gravel',
+  grass: 'grass', wood: 'grass', pitch: 'grass', farm: 'grass', sand: 'pathGravel', playground: 'pathGravel', track: 'pathGravel',
   parking: 'lot', plaza: 'paving', water: 'water',
 };
 const Y = {
@@ -124,14 +124,29 @@ function walkBack(pts, vi, dir, d) {
 
 // Ground, areas, roads and (in full detail) markings, crosswalks, paths, sidewalks and parking stalls.
 export async function buildStreets(world, chunk, materials, { lite = false, budget = null } = {}) {
-  const mb = new MultiBuilder(materials);
+  // Everything here lies on the ground, so it all follows the terrain. Flat chunks need little
+  // subdivision; hilly ones are cut finer so roads and lawns bend with the slope.
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i <= 8; i++) {
+    for (let j = 0; j <= 8; j++) {
+      const e = world.elevation(chunk.rect.minX + ((chunk.rect.maxX - chunk.rect.minX) * i) / 8, chunk.rect.minZ + ((chunk.rect.maxZ - chunk.rect.minZ) * j) / 8);
+      if (e < lo) lo = e;
+      if (e > hi) hi = e;
+    }
+  }
+  const range = hi - lo;
+  const mb = new MultiBuilder(materials, {
+    drape: (x, z) => world.elevation(x, z),
+    maxEdge: (range < 0.6 ? 40 : range < 4 ? 12 : 5) * (lite ? 2 : 1),
+    drapeByKey: world.terrain ? { water: (x, z) => world.terrain.water(x, z) } : {},
+  });
   const spots = { trees: [], wells: [], lamps: [], cars: [] };
   const rect = chunk.rect;
   const tick = async () => { if (budget) await budget.tick(); };
   const nearIx = (x, z, extra) => world.near(x, z, 30).some((c) => c.junctionHash.near(x, z, 30)
     .some((j) => j.isIx && Math.hypot(j.x - x, j.z - z) < j.radius + extra));
 
-  mb.get('grass').polygon([[rect.minX, rect.minZ], [rect.maxX, rect.minZ], [rect.maxX, rect.maxZ], [rect.minX, rect.maxZ]], [], 0, TINT.ground);
+  mb.get('ground').polygon([[rect.minX, rect.minZ], [rect.maxX, rect.minZ], [rect.maxX, rect.maxZ], [rect.minX, rect.maxZ]], [], 0, TINT.ground);
   for (const a of chunk.areas) {
     const key = AREA_MATERIAL[a.k];
     if (key) mb.get(key).polygon(a.o, a.i, Y[a.k], TINT[a.k] || TINT.grass);
@@ -196,8 +211,8 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
   for (const r of chunk.roads) {
     if (r.kind !== 'path') continue;
     await tick();
-    const key = r.t === 'cycleway' ? 'road' : r.t === 'path' || r.t === 'track' ? 'gravel' : 'sidewalk';
-    const c = r.t === 'cycleway' ? TINT.cycleway : key === 'gravel' ? TINT.path : TINT.footway;
+    const key = r.t === 'cycleway' ? 'road' : r.t === 'path' || r.t === 'track' ? 'pathGravel' : 'sidewalk';
+    const c = r.t === 'cycleway' ? TINT.cycleway : key === 'pathGravel' ? TINT.path : TINT.footway;
     const g = mb.get(key);
     for (const run of runs(resample(r.p, 0.8), (s) => !world.onRoad(s.x, s.z, 0.3, null, CAR_ONLY), 1)) {
       const pts = run.map((s) => [s.x, s.z]);
@@ -279,12 +294,12 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
   const clear = (p, rad) => inRect(p.x, p.z, rect, -1) && !world.onRoad(p.x, p.z, 0.5) && !nearIx(p.x, p.z, 3)
     && !world.buildingAt(p.x, p.z) && !world.buildingAt(p.x + rad, p.z) && !world.buildingAt(p.x - rad, p.z)
     && !world.buildingAt(p.x, p.z + rad) && !world.buildingAt(p.x, p.z - rad);
-  const onWalkway = (p, d) => world.groundAt(p.x, p.z) > 0 || world.nearPath(p.x, p.z, d);
+  const onWalkway = (p, d) => world.onSidewalk(p.x, p.z) || world.nearPath(p.x, p.z, d);
   const inLot = (p) => chunk.areas.some((a) => a.k === 'parking' && pointInShape(p.x, p.z, a.o, a.i));
   spots.trees = spots.trees.filter((p) => clear(p, 1.2) && !nearCrossing(p.x, p.z, 2.5) && !onWalkway(p, 0.6) && !inLot(p));
   spots.wells = spots.wells.filter((p) => clear(p, 0.8) && !nearCrossing(p.x, p.z, 2.5));
   spots.lamps = spots.lamps.filter((p) => clear(p, 0.4) && !nearCrossing(p.x, p.z, 1.5));
-  for (const p of spots.wells) groundRect(mb.get('plain'), p.x, p.z, 1, 0, 0.6, 0.6, SIDEWALK_Y + 0.006, TINT.grate);
+  for (const p of spots.wells) groundRect(mb.get('paint'), p.x, p.z, 1, 0, 0.6, 0.6, SIDEWALK_Y + 0.006, TINT.grate);
 
   return { meshes: mb.meshes({ cast: false, receive: true }), spots };
 }

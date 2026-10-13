@@ -8,6 +8,7 @@ import { Character } from './character.js';
 import { Player } from './player.js';
 import { Labels, CATS, escapeHtml } from './labels.js';
 import { MiniMap } from './minimap.js';
+import { Terrain } from './terrain.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
 
 const $ = (id) => document.getElementById(id);
@@ -130,7 +131,7 @@ function findSpawn(w, bearingDeg) {
       for (const side of [near, -near]) {
         for (let d = rd.road.hw - 0.5; d < rd.road.hw + 9; d += 0.4) {
           const p = at(side, d, along);
-          if (w.groundAt(p.x, p.z) > 0 && free(p.x, p.z)) { spot = p; break search; }
+          if (w.onSidewalk(p.x, p.z) && free(p.x, p.z)) { spot = p; break search; }
         }
       }
     }
@@ -172,11 +173,12 @@ async function enterStreet(lat, lon, bearing = 0) {
   character.root.visible = false;
 
   frame = new Frame(lat, lon);
-  world = new World(frame);
+  const terrain = new Terrain(frame);
+  world = new World(frame, terrain);
   labels = new Labels(world, scene, camera, $('tags'));
   labels.onChange = setLabelButtons;
   setLabelButtons(labels.mode);
-  chunks = new ChunkManager({ frame, world, scene, labels, minimap, materials });
+  chunks = new ChunkManager({ frame, world, scene, labels, minimap, materials, terrain });
   try {
     await chunks.warmup(0, 0, (p) => { $('loading-bar').style.width = `${Math.round(p * 100)}%`; });
   } catch (e) {
@@ -350,7 +352,7 @@ actions.KeyM = () => openGlobe('map');
 actions.KeyG = () => openGlobe('globe');
 
 // ---------- loop ----------
-let last = performance.now(), hudT = 0, miniT = 0, frames = 0, fpsT = 0, hashT = 0;
+let last = performance.now(), hudT = 0, miniT = 0, frames = 0, fpsT = 0, hashT = 0, farT = 0;
 let cardId = null;
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
@@ -374,10 +376,25 @@ function loop(now) {
     player.update(dt, input);
     const p = player.pos;
     chunks.update(p.x, p.z);
-    sun.target.position.set(p.x, 0, p.z);
+    sun.target.position.set(p.x, p.y, p.z);
     sun.position.copy(sun.target.position).addScaledVector(SUN_DIR, 150);
     sky.position.copy(camera.position);
-    farGround.position.set(p.x, -0.05, p.z);
+    // Keep the background ground just below the lowest nearby terrain, so on a hilltop it doesn't
+    // hover over the valley.
+    farT -= dt;
+    if (farT <= 0) {
+      farT = 1;
+      let low = world.elevation(p.x, p.z);
+      for (const r of [150, 350, 650]) {
+        for (let k = 0; k < 12; k++) {
+          const a = (k / 12) * Math.PI * 2;
+          low = Math.min(low, world.elevation(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r));
+        }
+      }
+      farGround.position.y = low - 1.5;
+    }
+    farGround.position.x = p.x;
+    farGround.position.z = p.z;
     labels.update(dt, p.x, p.z);
 
     hudT -= dt;

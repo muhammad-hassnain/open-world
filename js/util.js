@@ -215,7 +215,8 @@ export function offsetPolyline(pts, off) {
     let mx = n1x + n2x, mz = n1z + n2z;
     const ml = Math.hypot(mx, mz);
     if (ml < 1e-6) { mx = n1x; mz = n1z; } else { mx /= ml; mz /= ml; }
-    const scale = 1 / Math.max(0.35, mx * n1x + mz * n1z);
+    // Cap the miter so hairpin turns get a short corner instead of a long spike.
+    const scale = 1 / Math.max(0.7, mx * n1x + mz * n1z);
     out.push([p[0] + mx * off * scale, p[1] + mz * off * scale]);
   }
   return out;
@@ -265,12 +266,20 @@ export class SpatialHash {
 export class GeoBuilder {
   // With `uv`, every vertex gets texture coordinates from `this.uvFn(x, y, z)`; callers set
   // uvFn per surface (e.g. along a wall or along a sidewalk) so textures line up in world space.
-  constructor({ uv = false, scale = 1 } = {}) {
+  //
+  // With `drape(x, z)`, faces follow the terrain: every vertex is raised by drape(x, z), and
+  // triangles are split until their horizontal edges are at most `maxEdge` long. An edge is
+  // split based on its own length only, so neighboring triangles split shared edges the same
+  // way and no cracks appear. `yOffset` raises everything (a building's base elevation).
+  constructor({ uv = false, scale = 1, drape = null, maxEdge = 5 } = {}) {
     this.p = []; this.n = []; this.c = [];
     this.uvOn = uv;
     this.uv = [];
     this.scale = scale;
     this.uvFn = (x, y, z) => [x / this.scale, z / this.scale];
+    this.drape = drape;
+    this.maxEdge2 = maxEdge * maxEdge;
+    this.yOffset = 0;
   }
 
   get count() { return this.p.length / 3; }
@@ -283,6 +292,51 @@ export class GeoBuilder {
 
   // Adds triangle; if (fx,fy,fz) is given, flips winding so the normal faces that direction.
   tri(ax, ay, az, bx, by, bz, cx, cy, cz, col, fx, fy, fz) {
+    if (!this.drape) { this._emit(ax, ay, az, bx, by, bz, cx, cy, cz, col, fx, fy, fz); return; }
+    // Decide the facing once, on the flat triangle, so draping can't flip it.
+    if (fx !== undefined) {
+      const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      if (nx * fx + ny * fy + nz * fz < 0) { let t; t = bx; bx = cx; cx = t; t = by; by = cy; cy = t; t = bz; bz = cz; cz = t; }
+    }
+    this._split(ax, ay, az, bx, by, bz, cx, cy, cz, col, 0);
+  }
+
+  _split(ax, ay, az, bx, by, bz, cx, cy, cz, col, depth) {
+    const m = this.maxEdge2;
+    const sab = depth < 12 && (bx - ax) ** 2 + (bz - az) ** 2 > m;
+    const sbc = depth < 12 && (cx - bx) ** 2 + (cz - bz) ** 2 > m;
+    const sca = depth < 12 && (ax - cx) ** 2 + (az - cz) ** 2 > m;
+    if (!sab && !sbc && !sca) { this._emit(ax, ay, az, bx, by, bz, cx, cy, cz, col); return; }
+    const d = depth + 1;
+    const abx = (ax + bx) / 2, aby = (ay + by) / 2, abz = (az + bz) / 2;
+    const bcx = (bx + cx) / 2, bcy = (by + cy) / 2, bcz = (bz + cz) / 2;
+    const cax = (cx + ax) / 2, cay = (cy + ay) / 2, caz = (cz + az) / 2;
+    const T = (x1, y1, z1, x2, y2, z2, x3, y3, z3) => this._split(x1, y1, z1, x2, y2, z2, x3, y3, z3, col, d);
+    if (sab && sbc && sca) {
+      T(ax, ay, az, abx, aby, abz, cax, cay, caz); T(abx, aby, abz, bx, by, bz, bcx, bcy, bcz);
+      T(cax, cay, caz, bcx, bcy, bcz, cx, cy, cz); T(abx, aby, abz, bcx, bcy, bcz, cax, cay, caz);
+    } else if (sab && sbc) {
+      T(ax, ay, az, abx, aby, abz, cx, cy, cz); T(abx, aby, abz, bx, by, bz, bcx, bcy, bcz); T(abx, aby, abz, bcx, bcy, bcz, cx, cy, cz);
+    } else if (sbc && sca) {
+      T(bx, by, bz, bcx, bcy, bcz, ax, ay, az); T(bcx, bcy, bcz, cx, cy, cz, cax, cay, caz); T(bcx, bcy, bcz, cax, cay, caz, ax, ay, az);
+    } else if (sca && sab) {
+      T(cx, cy, cz, cax, cay, caz, bx, by, bz); T(cax, cay, caz, ax, ay, az, abx, aby, abz); T(cax, cay, caz, abx, aby, abz, bx, by, bz);
+    } else if (sab) {
+      T(ax, ay, az, abx, aby, abz, cx, cy, cz); T(abx, aby, abz, bx, by, bz, cx, cy, cz);
+    } else if (sbc) {
+      T(bx, by, bz, bcx, bcy, bcz, ax, ay, az); T(bcx, bcy, bcz, cx, cy, cz, ax, ay, az);
+    } else {
+      T(cx, cy, cz, cax, cay, caz, bx, by, bz); T(cax, cay, caz, ax, ay, az, bx, by, bz);
+    }
+  }
+
+  _emit(ax, ay, az, bx, by, bz, cx, cy, cz, col, fx, fy, fz) {
+    // Texture coordinates come from the undraped position, so textures don't stretch with height.
+    const uv = this.uvOn ? [...this.uvFn(ax, ay, az), ...this.uvFn(bx, by, bz), ...this.uvFn(cx, cy, cz)] : null;
+    const o = this.yOffset;
+    if (this.drape) { ay += this.drape(ax, az); by += this.drape(bx, bz); cy += this.drape(cx, cz); }
+    ay += o; by += o; cy += o;
     const ux = bx - ax, uy = by - ay, uz = bz - az;
     const vx = cx - ax, vy = cy - ay, vz = cz - az;
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
@@ -293,10 +347,11 @@ export class GeoBuilder {
       let t;
       t = bx; bx = cx; cx = t; t = by; by = cy; cy = t; t = bz; bz = cz; cz = t;
       nx = -nx; ny = -ny; nz = -nz;
+      if (uv) { t = uv[2]; uv[2] = uv[4]; uv[4] = t; t = uv[3]; uv[3] = uv[5]; uv[5] = t; }
     }
     this.p.push(ax, ay, az, bx, by, bz, cx, cy, cz);
     for (let i = 0; i < 3; i++) { this.n.push(nx, ny, nz); this.c.push(col.r, col.g, col.b); }
-    if (this.uvOn) this.uv.push(...this.uvFn(ax, ay, az), ...this.uvFn(bx, by, bz), ...this.uvFn(cx, cy, cz));
+    if (uv) this.uv.push(...uv);
   }
 
   // Quad a-b-c-d (each [x,y,z]); optional facing direction f = [fx,fy,fz].
@@ -360,17 +415,30 @@ export class GeoBuilder {
 
 // One GeoBuilder per material; materials carry their texture scale in userData.scale.
 export class MultiBuilder {
-  constructor(materials) { this.materials = materials; this.builders = new Map(); }
+  // `drape`/`maxEdge` make every builder follow the terrain; `drapeByKey` overrides per material.
+  constructor(materials, { drape = null, maxEdge = 5, drapeByKey = {} } = {}) {
+    this.materials = materials;
+    this.builders = new Map();
+    this.opts = { drape, maxEdge, drapeByKey };
+    this.yOffset = 0;
+  }
 
   get(key) {
     let b = this.builders.get(key);
     if (!b) {
       const m = this.materials[key];
       if (!m) throw new Error(`unknown material ${key}`);
-      b = new GeoBuilder({ uv: !!m.map, scale: m.userData.scale || 1 });
+      const drape = this.opts.drapeByKey[key] || this.opts.drape;
+      b = new GeoBuilder({ uv: !!m.map, scale: m.userData.scale || 1, drape, maxEdge: this.opts.maxEdge });
+      b.yOffset = this.yOffset;
       this.builders.set(key, b);
     }
     return b;
+  }
+
+  setYOffset(y) {
+    this.yOffset = y;
+    for (const b of this.builders.values()) b.yOffset = y;
   }
 
   meshes({ cast = false, receive = true } = {}) {

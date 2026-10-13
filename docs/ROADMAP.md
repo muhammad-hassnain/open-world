@@ -15,6 +15,8 @@ contribute real photos and video. Davis, California is the first area with extra
 - **Realistic materials:** CC0 textures for asphalt, concrete sidewalks, pavers, grass, siding,
   stucco, brick, concrete, metal and roofs; parking lots with stalls; gable/hip roofs, porches,
   shutters and balconies; roof colors measured from USGS aerial photos in the US.
+- **Real terrain:** streets, buildings, props and labels follow real elevation everywhere
+  (Terrain Tiles); buildings on slopes get foundations.
 
 ## Next: more of the world, better
 
@@ -26,9 +28,12 @@ contribute real photos and video. Davis, California is the first area with extra
 4. **More realism.** Real-looking trees, cars and people (currently simple shapes), curb ramps
    and continuous sidewalk corners, better height guesses where OpenStreetMap has none, and roof
    colors outside the US.
+5. **Bridges and overpasses.** Lift `bridge` roads onto decks between their ends; today they
+   follow the ground, so a bridge dips down to the river and freeway overpasses lie on the
+   streets below. (Tunnels are already left out.)
 
 Other candidates (no order): people walking, cars driving, driving yourself, time of day and
-night lighting, touch controls, deploying as a static site.
+night lighting, touch controls.
 
 ## Later: a real-world layer from contributed captures
 
