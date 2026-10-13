@@ -85,8 +85,9 @@ the address bar keeps your current position so you can share it.
 | Pause / release mouse | `Esc` |
 
 On phones and tablets: put your thumb anywhere on the left half of the screen for a joystick
-(push further to run; hold it all the way for a moment to lock into a sprint), drag on the right
-half to look, pinch to zoom, and tap **Jump**.
+(push further to run; hold it all the way for a moment to lock into a sprint, which keeps going
+after you let go until you touch the joystick again), drag on the right half to look and steer,
+pinch to zoom, and tap **Jump**.
 
 ## How it works
 

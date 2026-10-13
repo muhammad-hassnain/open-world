@@ -76,7 +76,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
 | `js/character.js`, `js/player.js` | Character model/animation; movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
-| `js/touch.js` | `TouchControls`: floating joystick (left half; held all the way locks a sprint), look (right half), pinch zoom, Jump button; adds `body.touch` |
+| `js/touch.js` | `TouchControls`: floating joystick (left half; held all the way locks a sprint that continues after release until the next touch), look (right half), pinch zoom, Jump button; adds `body.touch` |
 | `js/util.js` | Polygon helpers, `resample`, `offsetPolyline`, `SpatialHash`, `GeoBuilder` (with world-space UVs), `MultiBuilder`, `Budget` |
 | `tools/build_detail.py` | Overpass → `data/detail/<z>/<x>/<y>.json` for tiles in `DETAIL_TILES` |
 | `tools/fetch_textures.py` | Downloads the CC0 textures into `assets/textures/` and writes `CREDITS.md` |

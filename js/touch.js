@@ -1,6 +1,7 @@
 // Touch controls for phones and tablets: a floating joystick that appears under the thumb on the
-// left half of the screen (hold it pushed all the way to lock into a sprint), drag on the right
-// half to look, pinch to zoom the camera, and a Jump button. Turned on by the first touch, so
+// left half of the screen (hold it pushed all the way to lock into a sprint, which keeps going
+// after you let go until you touch the left half again), drag on the right half to look and
+// steer, pinch to zoom the camera, and a Jump button. Turned on by the first touch, so
 // touch-screen laptops get them too.
 import { clamp } from './util.js';
 
@@ -20,7 +21,7 @@ export class TouchControls {
     this.ui = ui;
     this.enabled = false;
     this.onEnable = null;
-    this.stick = null;          // { id, ox, oy, dx, dy, fullSince, sprint }
+    this.stick = null;          // { id, ox, oy, dx, dy, fullSince, sprint, auto }
     this.looks = new Map();     // pointerId -> { x, y }
     this.pinch = 0;             // last distance between two look touches
     this.lookX = 0; this.lookY = 0; this.zoom = 0;
@@ -49,13 +50,16 @@ export class TouchControls {
     const out = { fwd: 0, right: 0, gait: 0, lookX: this.lookX, lookY: this.lookY, zoom: this.zoom, jump: this.jump };
     this.lookX = 0; this.lookY = 0; this.zoom = 0; this.jump = false;
     const s = this.stick;
-    if (s) {
+    if (s && s.auto) {
+      // Sprint locked and thumb lifted: keep sprinting that way (steer by looking around).
+      out.right = s.dx; out.fwd = -s.dy; out.gait = 2;
+    } else if (s) {
       const m = Math.min(1, Math.hypot(s.dx, s.dy));
       // Held all the way for a moment: lock into a sprint until the stick eases back.
       const now = performance.now();
       if (m < FULL) s.fullSince = 0; else if (!s.fullSince) s.fullSince = now;
       const sprint = m >= SPRINT_KEEP && (s.sprint || (s.fullSince > 0 && now - s.fullSince > SPRINT_HOLD));
-      if (sprint !== s.sprint) { s.sprint = sprint; this.ui.stick.classList.toggle('sprint', sprint); }
+      if (sprint !== s.sprint) { s.sprint = sprint; this._drawStick(); }
       if (m > DEAD) {
         const k = Math.min(1, m / WALK_ZONE) / m;
         out.right = s.dx * k;
@@ -78,8 +82,9 @@ export class TouchControls {
     this.enable();
     e.preventDefault();  // no emulated mouse events (they would start pointer lock)
     surface.setPointerCapture(e.pointerId);
-    if (e.clientX < window.innerWidth / 2 && !this.stick) {
-      this.stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0, fullSince: 0, sprint: false };
+    if (e.clientX < window.innerWidth / 2 && (!this.stick || this.stick.auto)) {
+      // A new stick; touching while a locked sprint runs on its own stops it.
+      this.stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0, fullSince: 0, sprint: false, auto: false };
       this._drawStick();
     } else {
       this.looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -116,8 +121,15 @@ export class TouchControls {
   }
 
   _up(e) {
-    if (this.stick && e.pointerId === this.stick.id) {
-      this.stick = null;
+    const s = this.stick;
+    if (s && e.pointerId === s.id) {
+      const m = Math.hypot(s.dx, s.dy);
+      if (s.sprint && m > 0) {
+        // Let go during a locked sprint: it keeps going until the next touch on the stick side.
+        Object.assign(s, { id: null, auto: true, dx: s.dx / m, dy: s.dy / m });
+      } else {
+        this.stick = null;
+      }
       this._drawStick();
     } else if (this.looks.delete(e.pointerId)) {
       this.pinch = this._pinchDist();
@@ -136,7 +148,7 @@ export class TouchControls {
     const x = s ? s.ox : 96, y = s ? s.oy : window.innerHeight - 120;
     stick.style.transform = `translate(${x}px, ${y}px)`;
     stick.classList.toggle('active', !!s);
-    if (!s) stick.classList.remove('sprint');
+    stick.classList.toggle('sprint', !!(s && s.sprint));
     knob.style.transform = s ? `translate(${s.dx * STICK_R}px, ${s.dy * STICK_R}px)` : '';
   }
 }

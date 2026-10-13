@@ -187,7 +187,8 @@ shows the first photo and its credit; `P` (or tapping the card) opens a full-scr
   and widens a little when sprinting.
 - Input: keyboard and mouse (pointer lock, or click-and-drag), or touch (`touch.js`): a joystick
   that appears under the left thumb, whose deflection blends walk into run and which locks into a
-  sprint when held all the way for a moment; drag-to-look and pinch-to-zoom on the right; a Jump
+  sprint when held all the way for a moment (the sprint continues after the thumb lifts, steered by
+  the camera, until the next touch on the left half); drag-to-look and pinch-to-zoom on the right; a Jump
   button. Phones also render at a lower pixel ratio
   with a smaller shadow map.
 - Spawn (`findSpawn`): nearest street to the chosen point → its sidewalk, else the street edge,
