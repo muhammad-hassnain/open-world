@@ -1,47 +1,31 @@
 # Roadmap
 
 The idea: an open world of the whole planet. It starts as an accurate, stylized model built from
-open map data, so it can cover anywhere OpenStreetMap does, and gets more realistic wherever
-people contribute real photos and video. Davis, California is the first area.
+open map data, so it covers anywhere OpenStreetMap does, and gets more realistic wherever people
+contribute real photos and video. Davis, California is the first area with extra detail.
 
-## Now: stylized downtown Davis from OpenStreetMap
+## Done
 
-Done:
+- **Walkable neighborhood:** third-person character, streets, sidewalks, crosswalks, buildings
+  with styles and facades, trees, street furniture, parked cars, labels and signs, info cards,
+  minimap (downtown Davis first).
+- **The whole world (phase 1):** globe with search, "Walk here" anywhere, streaming chunks from
+  OpenFreeMap vector tiles, fly back out with `G`, detailed pre-built tiles where available,
+  road widths fitted to old city streets, right-to-left map labels.
 
-- Walkable third-person world for downtown Davis (B and C Streets, 1st to 5th) with a low-detail
-  ring of surrounding blocks.
-- Streets, markings, crosswalks, curbed sidewalks, parks, parking, trees, lamps, benches, bike
-  racks, hydrants and parked cars.
-- Buildings from real footprints with styles, roofs, facades and storefronts.
-- Real place names with switchable labels (tags, signs, off), info cards, minimap and full map.
-- Data downloaded once and served from disk; playable from any device on the network.
+## Next: more of the world, better
 
-Candidates for next (not committed to an order):
+2. **Detail anywhere.** Fetch the richer OpenStreetMap data for the area you're in on demand
+   (sidewalks, crossings, trees, opening hours), swapping it in when it arrives, instead of
+   only for pre-built tiles. Needs a fair-use strategy for the public Overpass API.
+3. **Big cities and regional rules.** Build chunks in a Web Worker for the densest cities;
+   pick driving side, road-marking colors, sign styles and building defaults per country.
+4. **Realism of the stylized world.** Pavement and asphalt surfaces, parking lots with stalls,
+   curb ramps and continuous sidewalk corners, more varied houses and shops, better height
+   guesses where OpenStreetMap has none.
 
-- Sidewalk corners with curb ramps, so corners are continuous instead of ending at the curb.
-- People walking on sidewalks and cars driving on streets.
-- Getting into a parked car and driving.
-- Time of day: sunset, night with lit windows and street lamps.
-- Touch controls for phones and tablets.
-
-## Next: from one neighborhood to the whole world
-
-Today the server loads one fixed area. Getting to "anywhere" means:
-
-1. **Tiles instead of one box.** Split the world into fixed tiles (for example web-map tiles at
-   a zoom level where a tile is a few hundred meters wide), download and process OSM data per
-   tile, and cache each tile on disk.
-2. **Stream as you move.** Load the tiles around the player and unload far ones; build
-   geometry per tile so loading a tile never stalls the game.
-3. **Precision far from the origin.** Keep a local origin per tile (or move the origin with the
-   player) so coordinates stay small anywhere on Earth.
-4. **Data at planet scale.** The public Overpass API is fine for one town, not for the world.
-   Move to OSM extracts (for example regional files) or pre-built vector tiles, processed by our
-   own server.
-5. **Regional rules.** Driving side, road-marking colors, sign styles, sidewalk and building
-   defaults, and place-name languages differ by country; pick them from the location instead of
-   assuming the US.
-6. **Pick where to go.** Search for a place or pick it on a map, then spawn there.
+Other candidates (no order): people walking, cars driving, driving yourself, time of day and
+night lighting, touch controls, deploying as a static site.
 
 ## Later: a real-world layer from contributed captures
 

@@ -20,14 +20,14 @@ export const CATS = {
 
 const MODES = ['tags', 'signs', 'off'];
 const SIGN_STYLES = [
-  null, // category color
+  null,
   { bg: '#f5efe0', fg: '#2b2b2b' },
   { bg: '#1f2a36', fg: '#f2d16b' },
   { bg: '#7a1f1f', fg: '#fff8ee' },
   { bg: '#24543f', fg: '#f6f1e3' },
 ];
-const yawZ = (nx, nz) => Math.atan2(nx, nz);   // maps local +Z to (nx, nz)
-const yawX = (dx, dz) => Math.atan2(-dz, dx);  // maps local +X to (dx, dz)
+const yawZ = (nx, nz) => Math.atan2(nx, nz);
+const yawX = (dx, dz) => Math.atan2(-dz, dx);
 
 function measure(text, font) {
   const ctx = measure.ctx || (measure.ctx = document.createElement('canvas').getContext('2d'));
@@ -53,6 +53,7 @@ function signTexture(text, bg, fg, { sub = null, border = null, h = 128 } = {}) 
   ctx.fillStyle = fg;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.direction = /[֐-ࣿיִ-﷿ﹰ-﻿]/.test(text) ? 'rtl' : 'ltr';
   const maxW = w - h * 0.4;
   ctx.font = font;
   if (sub) {
@@ -66,7 +67,7 @@ function signTexture(text, bg, fg, { sub = null, border = null, h = 128 } = {}) 
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  return { tex, aspect: w / h };
+  return tex;
 }
 
 export class Labels {
@@ -75,10 +76,11 @@ export class Labels {
     this.scene = scene;
     this.camera = camera;
     this.layer = layer;
+    this.byChunk = new Map();     // chunk key -> { items, streetSigns }
     this.items = [];
     this.hash = new SpatialHash(30);
-    this.streetSigns = [];
     this.streetHash = new SpatialHash(30);
+    this.streets = new Map();     // street name -> car roads
     this.signs = new Map();
     this.tags = new Map();
     this.occluded = new Map();
@@ -92,32 +94,70 @@ export class Labels {
     try { const m = localStorage.getItem('ow.labels'); if (MODES.includes(m)) this.mode = m; } catch { /* storage unavailable */ }
   }
 
-  // ---------- placement ----------
+  // ---------- chunks ----------
 
-  build() {
-    const w = this.world;
+  async addChunk(ci, budget) {
+    const items = [];
     const covered = new Set();
-    for (const p of w.pois) {
-      if (p.c === 'place' || !w.inCore(p.x, p.z, -10)) continue;
-      const item = { id: p.id, name: p.n, cat: CATS[p.c] ? p.c : 'service', kind: p.k, poi: p, building: p.building || null };
-      this._place(item);
+    for (const p of ci.pois) {
+      if (budget) await budget.tick();
+      const item = { id: p.id, name: p.n, cat: CATS[p.c] ? p.c : 'service', kind: p.k, poi: p, building: p.building || null, chunk: ci.key };
+      this._place(item, ci);
       if (item.building) covered.add(item.building);
-      this.items.push(item);
+      items.push(item);
     }
-    for (const b of w.buildings) {
-      if (!b.name || covered.has(b) || !w.inCore(b.cx, b.cz, -10)) continue;
+    for (const b of ci.buildings) {
+      if (!b.name || covered.has(b)) continue;
       const cat = b.style === 'civic' ? (b.type === 'university' || b.type === 'school' ? 'education' : 'civic')
         : b.style === 'church' ? 'worship' : 'building';
-      const item = { id: `b${b.id}`, name: b.name, cat, kind: (b.type === 'yes' ? 'Building' : b.type.charAt(0).toUpperCase() + b.type.slice(1).replace(/_/g, ' ')), building: b, poi: { x: b.cx, z: b.cz } };
-      this._place(item);
-      this.items.push(item);
+      const kind = b.type === 'yes' ? 'Building' : b.type.charAt(0).toUpperCase() + b.type.slice(1).replace(/_/g, ' ');
+      const item = { id: `b${b.id}`, name: b.name, cat, kind, building: b, poi: { x: b.cx, z: b.cz }, chunk: ci.key };
+      this._place(item, ci);
+      items.push(item);
     }
-    this._spread();
-    for (const it of this.items) this.hash.insert(it, it.x, it.z, it.x, it.z);
-    this._buildStreetSigns();
+    this._spread(items);
+    this.byChunk.set(ci.key, { items, streetSigns: this._streetSigns(ci) });
+    this._reindex();
   }
 
-  _place(item) {
+  removeChunk(key) {
+    const entry = this.byChunk.get(key);
+    if (!entry) return;
+    for (const it of [...entry.items, ...entry.streetSigns]) {
+      this._disposeSign(it.id);
+      const el = this.tags.get(it.id);
+      if (el) { el.remove(); this.tags.delete(it.id); }
+    }
+    this.byChunk.delete(key);
+    this._reindex();
+  }
+
+  clear() {
+    for (const key of [...this.byChunk.keys()]) this.removeChunk(key);
+    for (const el of this.tags.values()) el.remove();
+    this.tags.clear();
+  }
+
+  _reindex() {
+    this.items = [...this.byChunk.values()].flatMap((e) => e.items);
+    this.hash = new SpatialHash(30);
+    for (const it of this.items) this.hash.insert(it, it.x, it.z, it.x, it.z);
+    this.streetHash = new SpatialHash(30);
+    for (const e of this.byChunk.values()) for (const s of e.streetSigns) this.streetHash.insert(s, s.x, s.z, s.x, s.z);
+    this.streets = new Map();
+    for (const c of this.world.chunks.values()) {
+      if (!this.byChunk.has(c.key)) continue;
+      for (const r of c.carRoads) {
+        if (!r.n) continue;
+        if (!this.streets.has(r.n)) this.streets.set(r.n, []);
+        this.streets.get(r.n).push(r);
+      }
+    }
+  }
+
+  // ---------- placement ----------
+
+  _place(item, ci) {
     const w = this.world;
     const p = item.poi;
     const b = item.building;
@@ -125,7 +165,7 @@ export class Labels {
     if (b && b.edges && b.edges.length) {
       let best = null, bestScore = -Infinity;
       for (const e of b.edges) {
-        if (e.len < 1.5) continue;
+        if (e.len < 1.5 || e.seam) continue;
         const q = closestOnSeg(p.x, p.z, e.ax, e.az, e.bx, e.bz);
         const score = (e.street ? 2 : 0) + e.facing - q.d / 12;
         if (score > bestScore) { bestScore = score; best = { e, t: q.t * e.len }; }
@@ -136,7 +176,7 @@ export class Labels {
         item.t = clamp(best.t, Math.min(e.len / 2, item.width / 2 + 0.3), Math.max(e.len / 2, e.len - item.width / 2 - 0.3));
         item.width = Math.min(item.width, e.len - 0.4);
         item.nx = e.nx; item.nz = e.nz;
-        if (b.style === 'shopfront' || b.style === 'civic') {
+        if (b.style === 'shopfront' || b.style === 'civic' || b.style === 'apartments' || b.style === 'warehouse') {
           item.signKind = 'wall';
           item.y = b.style === 'shopfront' ? Math.min(b.groundH - 0.6, b.h - 0.6) : Math.min(3.4, b.h - 0.7);
         } else {
@@ -148,9 +188,8 @@ export class Labels {
         return;
       }
     }
-    // Free-standing: parks get a sign at their edge closest to a street.
     let x = p.x, z = p.z;
-    const area = item.cat === 'leisure' ? w.areas.find((a) => a.n === item.name) : null;
+    const area = item.cat === 'leisure' ? ci.areas.find((a) => a.n === item.name) : null;
     const rd = w.nearestRoad(x, z, 300);
     if (area && rd) {
       const dx = rd.x - x, dz = rd.z - z, L = Math.hypot(dx, dz) || 1;
@@ -182,10 +221,9 @@ export class Labels {
     }
   }
 
-  // Keep wall signs on the same wall from overlapping.
-  _spread() {
+  _spread(items) {
     const byEdge = new Map();
-    for (const it of this.items) {
+    for (const it of items) {
       if (it.signKind !== 'wall') continue;
       if (!byEdge.has(it.edge)) byEdge.set(it.edge, []);
       byEdge.get(it.edge).push(it);
@@ -204,9 +242,9 @@ export class Labels {
     }
   }
 
-  _buildStreetSigns() {
-    const w = this.world;
-    for (const j of w.junctions) {
+  _streetSigns(ci) {
+    const out = [];
+    for (const j of ci.junctions) {
       const named = [];
       for (const a of j.carArms) {
         if (!a.road.n || named.some((n) => n.name === a.road.n)) continue;
@@ -215,16 +253,15 @@ export class Labels {
         const dx = nb[0] - j.x, dz = nb[1] - j.z, l = Math.hypot(dx, dz) || 1;
         named.push({ name: a.road.n, dx: dx / l, dz: dz / l, hw: a.road.hw });
       }
-      if (named.length < 2 || !w.inCore(j.x, j.z, 5)) continue;
+      if (named.length < 2) continue;
       const [r1, r2] = named;
       const sin = Math.abs(r1.dx * r2.dz - r1.dz * r2.dx);
       if (sin < 0.4) continue;
       const a = (r2.hw + 0.9) / sin, b = (r1.hw + 0.9) / sin;
       const x = j.x + r1.dx * a + r2.dx * b, z = j.z + r1.dz * a + r2.dz * b;
-      const s = { id: `j${Math.round(j.x)}_${Math.round(j.z)}`, x, z, roads: [r1, r2] };
-      this.streetSigns.push(s);
-      this.streetHash.insert(s, x, z, x, z);
+      out.push({ id: `j${Math.round(j.x)}_${Math.round(j.z)}`, x, z, roads: [r1, r2] });
     }
+    return out;
   }
 
   // ---------- mode ----------
@@ -255,18 +292,17 @@ export class Labels {
       const civic = it.building && it.building.style === 'civic';
       const bg = civic ? '#e8e2d4' : style ? style.bg : cat.color;
       const fg = civic ? '#33393f' : style ? style.fg : '#ffffff';
-      const { tex } = signTexture(it.name, bg, fg);
+      const tex = signTexture(it.name, bg, fg);
       textures.push(tex);
       const face = new THREE.MeshLambertMaterial({ map: tex });
-      const h = 0.6;
-      const m = new THREE.Mesh(new THREE.BoxGeometry(it.width, h, 0.08), [this.signFrame, this.signFrame, this.signFrame, this.signFrame, face, this.signFrame]);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(it.width, 0.6, 0.08), [this.signFrame, this.signFrame, this.signFrame, this.signFrame, face, this.signFrame]);
       m.position.set(it.x, it.y, it.z);
       m.rotation.y = yawZ(it.nx, it.nz);
       m.castShadow = true;
       g.add(m);
     } else {
       const park = it.cat === 'leisure';
-      const { tex } = signTexture(it.name, park ? '#5b4423' : '#f7f4ec', park ? '#f3e7c4' : '#2d3238', { sub: park ? null : it.kind, border: park ? '#d8c690' : cat.color });
+      const tex = signTexture(it.name, park ? '#5b4423' : '#f7f4ec', park ? '#f3e7c4' : '#2d3238', { sub: park ? null : it.kind, border: park ? '#d8c690' : cat.color });
       textures.push(tex);
       const face = new THREE.MeshLambertMaterial({ map: tex });
       const wdt = Math.min(it.width, park ? 4 : 2.2), h = park ? 0.75 : 0.62;
@@ -298,7 +334,7 @@ export class Labels {
     pole.castShadow = true;
     g.add(pole);
     s.roads.forEach((r, i) => {
-      const { tex } = signTexture(r.name, '#1e6b45', '#ffffff', { border: '#ffffff', h: 96 });
+      const tex = signTexture(r.name, '#1e6b45', '#ffffff', { border: '#ffffff', h: 96 });
       textures.push(tex);
       const face = new THREE.MeshLambertMaterial({ map: tex });
       const edge = new THREE.MeshLambertMaterial({ color: '#1e6b45' });
@@ -375,21 +411,16 @@ export class Labels {
       const d = Math.hypot(it.x - px, it.z - pz);
       if (d < 90) cands.push({ key: it.id, it, d, x: it.x, y: it.tagY, z: it.z });
     }
-    // Street names: one tag per street at its closest point.
-    const seen = new Set();
-    for (const r of this.world.carRoads) {
-      if (!r.n || seen.has(r.n)) continue;
-      if (px < r.bbox.minX - 45 || px > r.bbox.maxX + 45 || pz < r.bbox.minZ - 45 || pz > r.bbox.maxZ + 45) continue;
+    for (const [name, roads] of this.streets) {
       let best = null;
-      for (const rr of this.world.carRoads) {
-        if (rr.n !== r.n) continue;
-        for (let i = 0; i < rr.p.length - 1; i++) {
-          const q = closestOnSeg(px, pz, rr.p[i][0], rr.p[i][1], rr.p[i + 1][0], rr.p[i + 1][1]);
+      for (const r of roads) {
+        if (px < r.bbox.minX - 45 || px > r.bbox.maxX + 45 || pz < r.bbox.minZ - 45 || pz > r.bbox.maxZ + 45) continue;
+        for (let i = 0; i < r.p.length - 1; i++) {
+          const q = closestOnSeg(px, pz, r.p[i][0], r.p[i][1], r.p[i + 1][0], r.p[i + 1][1]);
           if (!best || q.d < best.d) best = q;
         }
       }
-      seen.add(r.n);
-      if (best && best.d < 45) cands.push({ key: `s:${r.n}`, street: r.n, d: best.d, x: best.x, y: 3.2, z: best.z });
+      if (best && best.d < 45) cands.push({ key: `s:${name}`, street: name, d: best.d, x: best.x, y: 3.2, z: best.z });
     }
     cands.sort((a, b) => a.d - b.d);
 
@@ -434,7 +465,10 @@ export class Labels {
     }
   }
 
-  // Closest place to the player, for the info card.
+  hideAll() {
+    for (const el of this.tags.values()) el.style.display = 'none';
+  }
+
   nearest(px, pz, maxD = 9) {
     let best = null, bd = maxD;
     for (const it of this.hash.near(px, pz, maxD)) {

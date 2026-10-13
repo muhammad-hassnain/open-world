@@ -55,12 +55,9 @@ export class Player {
     this.vel.z = damp(this.vel.z, wz * target, accel, dt);
     if (wl > 0.1) this.yaw += angleDelta(this.yaw, Math.atan2(-wx, -wz)) * (1 - Math.exp(-12 * dt));
 
-    // Horizontal move with collision + world bounds.
-    const c = w.core;
+    // Horizontal move with collision.
     let nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
     [nx, nz] = w.resolveCircle(nx, nz, RADIUS);
-    nx = clamp(nx, c.minX + 3, c.maxX - 3);
-    nz = clamp(nz, c.minZ + 3, c.maxZ - 3);
     this.speed = dt > 0 ? Math.hypot(nx - this.pos.x, nz - this.pos.z) / dt : 0;
     this.pos.x = nx; this.pos.z = nz;
 

@@ -5,148 +5,154 @@ agent. Read this before making changes; read [README.md](README.md) for what the
 
 ## The project in one paragraph
 
-An open world of the whole planet built from OpenStreetMap data, starting with one walkable,
-stylized neighborhood: downtown Davis, CA (B and C Streets, 1st to 5th). Design for "anywhere",
-even though only Davis is loaded today. `server.py` downloads OSM data once via the
-Overpass API, converts it to compact JSON in local meters, caches it in `.cache/` and serves it.
-The browser (plain ES modules + three.js 0.160.1, no build step) generates every street,
-building, tree, sign and prop from that data at load time, then runs a third-person character
-controller, labels and a minimap.
+An open world of the whole planet built from OpenStreetMap data. A MapLibre globe lets you pick
+any place; "Walk here" builds a stylized, walkable 3D neighborhood around that point and streams
+more as you move. Everything runs in the browser (plain ES modules + three.js 0.160.1 +
+MapLibre 5.24.0, no build step): it downloads OpenFreeMap vector tiles (or, for selected tiles,
+richer pre-built OpenStreetMap data from `data/detail/`), cuts them into chunks and generates
+streets, buildings, trees, signs and props. `server.py` only serves files. Design for
+"anywhere": Davis is the starting point, not a special case.
 
 ## Run
 
 ```bash
-python3 server.py            # http://localhost:8080 ; first run downloads OSM data (1-3 min)
-curl localhost:8080/data/status   # per-dataset download status
+python3 server.py            # http://localhost:8080 (globe) ; static files only
 ```
 
-Restart the server after editing `server.py`. Front-end edits only need a browser reload
-(responses are sent with `Cache-Control: no-store`).
+Useful URLs: `/?test` (walk straight into Davis, no click-to-play), `/?test&at=LAT,LON`
+(walk in anywhere), `/?globe` (open the globe; `game.ready` when it has loaded),
+`/#LAT,LON` (deep link). Front-end edits need only a reload (`Cache-Control: no-store`).
 
 ## Verify your change
 
 There is no unit-test suite; correctness is checked by loading the game.
 
-1. **Console must be clean.** Load `http://localhost:8080/?test` and check for errors, or run
-   the screenshot tool, which reports `pageerror`/console errors and exits non-zero on page errors.
+1. **Console must be clean.** The screenshot tool reports page errors and console errors and
+   exits non-zero on page errors.
 2. **Look at it.** For anything visual:
    ```bash
    pip install -r tools/requirements.txt && python3 -m playwright install chromium   # once
-   python3 tools/screenshot.py                 # views: spawn run signs street overview map
-   python3 tools/screenshot.py signs street    # just some views -> ./screenshots/
+   python3 tools/screenshot.py                     # davis signs paris tokyo nyc overview map globe
+   python3 tools/screenshot.py davis paris         # just some views -> ./screenshots/
    ```
-   Open the PNGs and compare with before your change. On a machine without a usable GPU, add
-   `--software` (slow).
-3. **Movement/collision changes**: also try walking into walls, onto curbs and across streets.
+   Check at least one detailed area (davis) and one vector-tile city (paris, tokyo or nyc):
+   they go through different data paths. On a machine without a usable GPU, add `--software` (slow).
+3. **Streaming/perf changes:** walk or run across several chunks and watch the fps counter;
+   chunks should load ahead of you without long frames.
 
-`?test` skips the click-to-play overlay and lets keyboard input work without pointer lock.
-It exposes `window.game` for scripted checks:
+`window.game` (available in every mode) for scripted checks:
 
 | Member | Use |
 | --- | --- |
-| `game.ready` | `true` once the world is built |
-| `game.teleport(x, z, yaw?)` | move the player (meters, see coordinates below) |
+| `game.ready` | `true` once the street world (or `?globe`) has loaded |
+| `game.enterStreet(lat, lon, bearing)` | build the world at a new place |
+| `game.teleport(x, z, yaw?)` | move within the current world (local meters) |
 | `game.setView(camYaw, camPitch, camDist?)` | aim the camera |
 | `game.press(code, down)` | hold/release a key, e.g. `game.press('KeyW', true)` |
 | `game.labels.setMode('tags' \| 'signs' \| 'off')` | switch label mode |
-| `game.openMap(true \| false)` | open/close the full map |
-| `game.world`, `game.player`, `game.labels`, `game.renderer` | inspect state, e.g. `renderer.info.render` |
+| `game.openMap(true \| false)`, `game.openGlobe('globe' \| 'map')` | globe/map screens |
+| `game.world`, `game.chunks`, `game.player`, `game.globe`, `game.renderer` | inspect state; `chunks.stats`, `renderer.info.render` |
 
 ## Code map
 
 | File | Responsibility |
 | --- | --- |
-| `server.py` | `WORLD` area config, Overpass queries, processors (OSM → compact JSON), disk cache, HTTP |
-| `js/main.js` | Renderer, sky, sun/shadows, load + build order, input, HUD, game loop, `window.game` |
-| `js/world.js` | `World`: road classification and widths, spatial hashes, collision (`resolveCircle`), `groundAt` (curbs), `heightAt`, `nearestRoad`, `onRoad`, `locate` |
-| `js/streets.js` | Ground, area fills, road ribbons, center lines, stop bars, crosswalks, paths, sidewalks (mapped + generated), spots for trees/lamps/cars |
-| `js/buildings.js` | Style classification, height/floor layout, walls, roofs (hip roofs on rectangular houses), facades, awnings |
-| `js/props.js` | Instanced trees, lamps, benches, bike racks, hydrants, bins, parked cars |
-| `js/labels.js` | Place list, sign placement on walls/lawns/posts, street-sign corners, floating tags, lazy 3D signs, nearest-place lookup |
-| `js/minimap.js` | Pre-rendered map canvas, rotating minimap, full map + click-to-teleport |
-| `js/character.js` | Procedural character model and walk/run/jump animation |
-| `js/player.js` | Movement, gravity, curb stepping, collision, third-person camera with wall avoidance |
-| `js/util.js` | Polygon helpers, `orient`, `resample`, `offsetPolyline`, `SpatialHash`, `GeoBuilder` mesh builder |
+| `js/main.js` | Renderer, sky, sun/shadows, screens (`globe`/`loading`/`street`), `enterStreet`, `findSpawn`, input, HUD, loop, `window.game` |
+| `js/globe.js` | MapLibre globe (OpenFreeMap style, RTL text plugin), Nominatim search and reverse geocoding |
+| `js/geo.js` | Web Mercator math, `Frame` (local meters around the walk-in point), tile rectangles; `DATA_ZOOM` 14, `CHUNK_ZOOM` 16 |
+| `js/tiledata.js` | Fetch a z14 tile: detail JSON if listed in `data/detail/index.json`, else OpenFreeMap; OpenMapTiles → common format; `toLocal` |
+| `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
+| `js/chunks.js` | `ChunkManager`: which chunks to load/build/drop, tile prep (T-junction repair, road-width fitting, footway classification), clipping, builds |
+| `js/clip.js` | Clip rings/polylines to a rectangle; `onBoundary` marks seams between chunks |
+| `js/world.js` | `ChunkIndex` (per-chunk data + spatial hashes) and `World` (queries across chunks: `resolveCircle`, `groundAt`, `heightAt`, `nearestRoad`, `onRoad`, `locate`, …) |
+| `js/streets.js` | Ground, areas, roads, center lines, stop lines, crosswalks, paths, sidewalks, spots for trees/lamps/cars; lite mode for distant chunks |
+| `js/buildings.js` | `styleOf`, `layout` (floors/heights), walls (skipping chunk seams), roofs, facades, awnings; lite mode |
+| `js/props.js` | Shared, instanced trees, lamps, benches, bike racks, hydrants, bins, parked cars |
+| `js/labels.js` | Per-chunk place items, sign placement, street-sign corners, floating tags, lazy 3D signs |
+| `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
+| `js/character.js`, `js/player.js` | Character model/animation; movement, curbs, collision, camera |
+| `js/util.js` | Polygon helpers, `resample`, `offsetPolyline`, `SpatialHash`, `GeoBuilder`, `Budget` |
+| `tools/build_detail.py` | Overpass → `data/detail/<z>/<x>/<y>.json` for tiles in `DETAIL_TILES` |
 | `tools/screenshot.py` | Headless screenshots (Playwright) |
 
 More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](docs/DATA.md).
 
 ## Conventions (follow these)
 
-- **No build tooling.** No npm, bundler or transpiler. Browser code is native ES modules. three.js
-  is pinned to `0.160.1` in the import map in `index.html`; addons import from `three/addons/...`.
-  If you upgrade three.js, re-check lighting intensities and the sky shader.
-- **Server uses only the Python standard library** and must keep working on Python 3.9+.
-- **Coordinates are meters** relative to `WORLD.origin`: `+x` east, `+z` south, `+y` up
-  (north is `-z`). The server already converts lat/lon; the client never handles degrees.
+- **No build tooling.** No npm, bundler or transpiler. three.js (`0.160.1`) and MapLibre
+  (`5.24.0`) are pinned in `index.html`. If you upgrade three.js, re-check lighting and the sky shader.
+- **Static site.** Everything must work from plain files (it is meant to be deployable to static
+  hosting). Don't add server-side logic; `server.py` stays a file server using only the
+  standard library on Python 3.9+.
+- **Build for anywhere, not just Davis.** Derive behavior from OSM data and geometry. Both data
+  sources (vector tiles and detail files) must keep working; anything that only exists in
+  detail data (sidewalk tags, opening hours, trees) needs a fallback for vector tiles.
+- **Coordinates are meters** in the current `Frame`: origin at the walk-in point, `+x` east,
+  `+z` south, `+y` up. Tile data arrives in tile units and is converted with `toLocal`.
 - **Polygon orientation:** `orient()` makes outer rings counter-clockwise seen from above
-  (negative shoelace area in x,z) and holes clockwise. With that, the outward normal of edge
-  `a → b` is `(-dz, dx)`. Wall and facade code depends on this.
-- **Geometry:** build static geometry with `GeoBuilder` (non-indexed, flat-shaded, vertex colors)
-  and merge into a few large meshes. Repeated objects go in an `InstancedMesh` (see
-  `props.js`). Only label signs are individual meshes, created lazily near the player.
-  Budget today: ~35 draw calls, ~0.9M triangles in the widest view.
+  (negative shoelace area in x,z) and holes clockwise; the outward normal of edge `a → b` is
+  `(-dz, dx)`. Wall and facade code depends on this.
+- **Chunks are independent.** Builders only create geometry inside their chunk's rectangle;
+  edges on the rectangle (`seam`) are not walls. Cross-chunk lookups go through `World`.
+- **Keep the main thread responsive.** Long loops in builders call `await budget.tick()`.
+  Static scenery is merged with `GeoBuilder`; repeated objects use shared geometry/materials
+  (`userData.shared = true`, never disposed) in an `InstancedMesh`. Everything else created for a
+  chunk is disposed when the chunk is rebuilt or dropped.
 - **Flat layers** (ground, areas, roads, markings) are separated by small heights (`Y` table in
-  `streets.js`) and rely on the logarithmic depth buffer. Put new flat layers in that table.
-- **Custom shaders** must include `#include <colorspace_fragment>` on its own line, or colors
-  come out too dark.
+  `streets.js`) and rely on the logarithmic depth buffer.
+- **Custom shaders** must include `#include <colorspace_fragment>` on its own line.
+- **Text in any script.** Names can be Arabic, Urdu, Hebrew, CJK, etc. HTML and canvas text
+  are shaped by the browser; map labels need MapLibre's RTL plugin (already loaded).
 - **Visual style is clean and stylized:** soft palettes, Lambert materials, no photo textures yet.
-  Keep new assets consistent with that.
-- **Data pipeline:** if you change an Overpass query or a processor in `server.py`, bump
-  `PROCESS_VERSION` so cached processed files are rebuilt. Raw Overpass responses are cached by
-  query hash in `.cache/overpass/`; processed files live in `.cache/data/`.
-- **Build for anywhere, not just Davis.** Derive behavior from OSM tags and geometry, not from
-  Davis street names or local habits. Keep anything area-specific in `WORLD` (server) or clearly
-  marked config, and add it to the list of area-specific assumptions below.
-- **Never commit `.cache/`** (it is in `.gitignore`).
-- **The OpenStreetMap credit line** (`#attrib` in `index.html`) is a license requirement; keep it visible.
+- **Detail data:** if you change the Overpass query or processors in `tools/build_detail.py`,
+  bump `PROCESS_VERSION` and rebuild (`python3 tools/build_detail.py --force`).
+- **Credits must stay visible:** `#attrib` (street view) and MapLibre's attribution (globe)
+  are license requirements for OpenStreetMap/OpenMapTiles/OpenFreeMap data; keep the Nominatim
+  credit under the search box.
 - **Commits and PRs:** short descriptive messages about the change. Do not add co-author
   trailers, "generated with" lines, or any tool attribution.
 
 ## Common tasks
 
-**Change the area.** Edit `WORLD` (`origin`, `core`, `context`) in `server.py`, restart. Update
-`findSpawn()` in `js/main.js` if C Street & 3rd Street aren't in the new area.
+**Add a detailed area.** Add `(14, x, y)` to `DETAIL_TILES` in `tools/build_detail.py`, run it,
+commit the files under `data/detail/`.
 
-**Add an OSM dataset.** Add an entry to `DATASETS` in `server.py` (`name: (overpass_query,
-processor)`), write the processor to emit compact local-meter JSON, then add the name to
-`DATASETS` in `js/main.js` (and to `OPTIONAL_EMPTY` if the game should load without it). Pass it
-into `World` and document the format in `docs/DATA.md`.
+**Map a new OpenMapTiles field or layer.** Edit `adaptVector()` in `js/tiledata.js`; keep the
+output in the common format documented in `docs/DATA.md`, and add the same field to
+`tools/build_detail.py` if detail data can provide it.
 
-**Add a prop type.** Map the OSM tag in `PROP_KINDS` (`server.py`), bump `PROCESS_VERSION`, add
-a geometry function and an entry in `buildFurniture()` (`js/props.js`), and add a collider if
-people shouldn't walk through it.
+**Tune buildings.** `styleOf()` (style from type, POIs inside, zone, size, levels), `layout()`
+(floors and heights), `facades()` in `js/buildings.js`.
 
-**Tune buildings.** Style rules are in `styleOf()`, heights/floors in `layout()`, facade details
-in `facades()` (`js/buildings.js`). Building heights are mostly estimates because few OSM
-buildings here have `height` or `building:levels`.
+**Tune streaming.** Radii are at the top of `js/chunks.js` (`FULL_R`, `LITE_R`, `DOWN_R`,
+`DROP_R`); fog distance is in `js/main.js`.
 
-**Add or restyle a place category.** Categories come from `categorize()` in `server.py`; colors
-and display names are in `CATS` in `js/labels.js`.
+**Add a prop type.** Geometry function + entry in `assets()` and `buildFurniture()`
+(`js/props.js`); add a collider if people shouldn't walk through it. Mapped props only exist
+in detail data.
 
 ## Area-specific assumptions (to generalize later)
 
-Today's code assumes a single area and some US conventions:
-
-- One fixed area per server (`WORLD` in `server.py`); no streaming or chunking yet.
-- The spawn point looks for C Street & 3rd Street (`findSpawn()` in `js/main.js`).
-- The intro text and `WORLD.name` describe downtown Davis.
-- Road markings are US style (double yellow center lines, white stop lines, right-hand traffic
-  for stop-line placement and parked-car direction).
+- Road markings are US style (double yellow center lines, white stop lines) and stop lines,
+  parked-car direction and sidewalk placement assume right-hand traffic.
 - Street signs are US-style green blades; sidewalk and lane widths are US defaults.
 - Fallback building heights and styles are tuned for a small US downtown.
+- The default start point and the only detailed tile are downtown Davis.
 
 ## Gotchas
 
-- The public Overpass API is slow and sometimes returns 504s or times out. The server retries
-  each dataset four times and tries mirror endpoints; `/data/<name>.json` blocks until the
-  download finishes (up to 5 minutes) and returns 503 if it ultimately fails. Only `buildings`
-  and `roads` are required; the client loads without the others.
-- Headless Chromium needs `--use-angle=gl-egl` to use the GPU on Linux; SwiftShader is too slow
-  for this scene. After many screenshots in one browser session, `page.screenshot` can hang even
-  though the page keeps rendering, so `tools/screenshot.py` launches a fresh browser per view.
-- Pointer lock may be refused (some browsers, insecure origins); the game then falls back to
-  click-and-drag to look.
-- OSM data is uneven: some sidewalks are mapped, most aren't. `streets.js` generates sidewalks
-  only where no mapped sidewalk is within 6.5 m, so changes there can create double or missing
-  sidewalks. Check both B and C Streets after touching it.
+- OpenMapTiles has no building types, sidewalk/crossing tags, trees, benches or opening hours.
+  Styles are inferred, footways are classified as sidewalks/crossings by geometry
+  (`classifyFootways`), and street trees/lamps are generated.
+- OpenMapTiles' `render_height` of exactly 5 means "unknown"; other values become floors at
+  3.66 m per floor.
+- Vector tiles merge features with identical attributes; `polygons()` splits building
+  multipolygons back into individual buildings by ring winding.
+- Old city centers are narrower than default road widths; `fitRoadWidths` narrows roads to the
+  measured wall-to-wall width. Without it, asphalt runs under buildings.
+- Headless Chromium needs `--use-angle=gl-egl` to use the GPU on Linux. After many screenshots
+  in one browser session `page.screenshot` can hang; `tools/screenshot.py` uses a fresh browser
+  per view. MapLibre logs harmless "performance warning: READ-usage buffer" messages there.
+- Nominatim allows about one request per second; search only runs on submit and reverse
+  geocoding once per walk-in.
+- Pointer lock may be refused; the game then falls back to click-and-drag to look.

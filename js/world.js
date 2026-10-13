@@ -1,6 +1,8 @@
+import * as THREE from 'three';
 import {
-  SpatialHash, bboxOf, orient, pointInShape, closestOnSeg, closestOnPolyline, centroid, signedArea,
+  SpatialHash, bboxOf, orient, pointInShape, closestOnSeg, centroid, signedArea,
 } from './util.js';
+import { CHUNK_ZOOM } from './geo.js';
 
 export const CAR_ROADS = new Set([
   'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential',
@@ -8,6 +10,8 @@ export const CAR_ROADS = new Set([
 ]);
 export const MAJOR_ROADS = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary']);
 const PATHS = new Set(['footway', 'path', 'cycleway', 'pedestrian', 'steps', 'track', 'bridleway', 'corridor']);
+export const CAR_ONLY = new Set(['car']);
+const ROAD_KINDS = new Set(['car', 'service']);
 
 const ROAD_WIDTH = {
   motorway: 15, trunk: 14, primary: 14, secondary: 13, tertiary: 12, residential: 10.5,
@@ -19,7 +23,7 @@ const PATH_WIDTH = { footway: 2, path: 1.6, cycleway: 3, pedestrian: 4, steps: 2
 
 export const SIDEWALK_Y = 0.15;
 
-function classify(r) {
+export function classifyRoad(r) {
   if (r.tu) return 'skip';
   if (r.ar) return r.t === 'pedestrian' || r.t === 'footway' ? 'plaza' : 'skip';
   if (CAR_ROADS.has(r.t)) return 'car';
@@ -30,113 +34,119 @@ function classify(r) {
   return 'skip';
 }
 
-function widthOf(r, kind) {
-  if (r.w && r.w > 1 && r.w < 40) return r.w;
+export function roadHalfWidth(r, kind) {
+  if (r.w && r.w > 1 && r.w < 40) return r.w / 2;
   if (kind === 'car') {
     const base = ROAD_WIDTH[r.t] || 9;
-    return r.ln && r.ln >= 3 ? Math.max(base, r.ln * 3.4 + 1) : base;
+    return (r.ln && r.ln >= 3 ? Math.max(base, r.ln * 3.4 + 1) : base) / 2;
   }
-  if (kind === 'service') return SERVICE_WIDTH[r.sv] || 5;
-  if (kind === 'sidewalk') return 2;
-  return PATH_WIDTH[r.t] || 2;
+  if (kind === 'service') return (SERVICE_WIDTH[r.sv] || 5) / 2;
+  if (kind === 'sidewalk') return 1;
+  return (PATH_WIDTH[r.t] || 2) / 2;
 }
 
-export class World {
-  constructor(meta, d) {
-    this.meta = meta;
-    this.core = meta.core;
+const segBox = (a, b, pad) => [Math.min(a[0], b[0]) - pad, Math.min(a[1], b[1]) - pad, Math.max(a[0], b[0]) + pad, Math.max(a[1], b[1]) + pad];
 
-    // ---- roads ----
-    this.roads = d.roads.map((r, idx) => {
-      const kind = classify(r);
-      return { ...r, idx, kind, hw: widthOf(r, kind) / 2, bbox: bboxOf(r.p) };
+// Everything known about one chunk: its data plus spatial indexes for queries.
+export class ChunkIndex {
+  constructor(key, rect, data) {
+    this.key = key;
+    this.rect = rect;
+    this.source = data.source;
+
+    this.roads = data.roads.map((r, idx) => {
+      const kind = classifyRoad(r);
+      return { ...r, idx, kind, hw: roadHalfWidth(r, kind), bbox: bboxOf(r.p) };
     });
     this.carRoads = this.roads.filter((r) => r.kind === 'car');
-    this.pathSegs = new SpatialHash(12);       // footpaths, sidewalks, crossings
+    this.roadHash = new SpatialHash(20);
+    this.pathSegs = new SpatialHash(12);
     for (const r of this.roads) {
-      if (r.kind !== 'path' && r.kind !== 'sidewalk' && r.kind !== 'crossing') continue;
+      const isRoad = r.kind === 'car' || r.kind === 'service';
+      const isPath = r.kind === 'path' || r.kind === 'sidewalk' || r.kind === 'crossing';
+      if (!isRoad && !isPath) continue;
       for (let i = 0; i < r.p.length - 1; i++) {
         const a = r.p[i], b = r.p[i + 1];
-        this.pathSegs.insert({ ax: a[0], az: a[1], bx: b[0], bz: b[1], hw: r.hw },
-          Math.min(a[0], b[0]) - r.hw, Math.min(a[1], b[1]) - r.hw, Math.max(a[0], b[0]) + r.hw, Math.max(a[1], b[1]) + r.hw);
-      }
-    }
-    this.roadHash = new SpatialHash(20);       // car + service segments
-    for (const r of this.roads) {
-      if (r.kind !== 'car' && r.kind !== 'service') continue;
-      for (let i = 0; i < r.p.length - 1; i++) {
-        const a = r.p[i], b = r.p[i + 1];
-        const seg = { road: r, i, ax: a[0], az: a[1], bx: b[0], bz: b[1] };
-        this.roadHash.insert(seg, Math.min(a[0], b[0]) - r.hw, Math.min(a[1], b[1]) - r.hw,
-          Math.max(a[0], b[0]) + r.hw, Math.max(a[1], b[1]) + r.hw);
+        const seg = { road: r, i, ax: a[0], az: a[1], bx: b[0], bz: b[1], hw: r.hw };
+        (isRoad ? this.roadHash : this.pathSegs).insert(seg, ...segBox(a, b, r.hw));
       }
     }
 
-    // ---- junctions (where 2+ car/service ways share a node) ----
-    this.junctions = d.junctions.map((j) => {
-      const arms = j.r.map(([ri, vi]) => ({ road: this.roads[ri], vi })).filter((a) => a.road.kind === 'car' || a.road.kind === 'service');
+    this.sidewalkSegs = new SpatialHash(12);
+    for (const r of this.roads) {
+      if (r.kind !== 'sidewalk') continue;
+      for (let i = 0; i < r.p.length - 1; i++) {
+        const a = r.p[i], b = r.p[i + 1];
+        this.sidewalkSegs.insert({ ax: a[0], az: a[1], bx: b[0], bz: b[1] }, ...segBox(a, b, 0));
+      }
+    }
+
+    this.junctions = computeJunctions(this.roads).map((j) => {
+      const arms = j.r.map(([ri, vi]) => ({ road: this.roads[ri], vi }));
       const carArms = arms.filter((a) => a.road.kind === 'car');
-      const radius = Math.max(0, ...carArms.map((a) => a.road.hw));
-      return { x: j.x, z: j.z, arms, carArms, radius };
+      let degree = 0;
+      for (const a of carArms) degree += a.vi > 0 && a.vi < a.road.p.length - 1 ? 2 : 1;
+      return { x: j.x, z: j.z, arms, carArms, isIx: degree >= 3, radius: Math.max(0, ...carArms.map((a) => a.road.hw)) };
     });
     this.junctionHash = new SpatialHash(30);
     for (const j of this.junctions) this.junctionHash.insert(j, j.x, j.z, j.x, j.z);
 
-    // ---- buildings ----
-    this.buildings = d.buildings.map((b, idx) => this._building(b, idx));
+    this.zones = (data.zones || []).map((a) => ({ ...a, bbox: bboxOf(a.o) }));
+    this.buildings = data.buildings.map((b) => this._building(b));
     this.buildingHash = new SpatialHash(16);
-    for (const b of this.buildings) this.buildingHash.insert(b, b.bbox.minX, b.bbox.minZ, b.bbox.maxX, b.bbox.maxZ);
+    this.colliders = new SpatialHash(16);
+    for (const b of this.buildings) {
+      this.buildingHash.insert(b, b.bbox.minX, b.bbox.minZ, b.bbox.maxX, b.bbox.maxZ);
+      if (b.solid) this.colliders.insert({ outer: b.outer, holes: b.holes, bbox: b.bbox }, b.bbox.minX, b.bbox.minZ, b.bbox.maxX, b.bbox.maxZ);
+    }
 
-    // ---- areas ----
-    this.areas = d.areas.map((a) => {
+    this.areas = data.areas.map((a) => {
       orient(a.o, true);
       (a.i || []).forEach((h) => orient(h, false));
       return { ...a, bbox: bboxOf(a.o), size: Math.abs(signedArea(a.o)) };
     });
-    this.lines = d.lines || [];
+    this.lines = data.lines || [];
+    this.pois = data.pois;
+    this.places = data.places || [];
+    this.trees = data.trees || [];
+    this.props = data.props || [];
+    this.resetDynamic();
+  }
 
-    this.pois = d.pois;
-    this.trees = d.trees;
-    this.props = d.props;
-
-    // ---- colliders (filled in by builders) ----
-    this.colliders = new SpatialHash(16);
-    for (const b of this.buildings) if (b.solid) this._addPolyCollider(b.outer, b.holes, b.bbox, b);
+  // Colliders and raised surfaces created when the chunk is built in full detail.
+  resetDynamic() {
+    this.dynColliders = new SpatialHash(16);
     this.circles = new SpatialHash(8);
-
-    // Raised surfaces (sidewalk slabs), filled by the street builder.
     this.raised = new SpatialHash(12);
   }
 
-  _building(b, idx) {
+  _building(b) {
     const outer = orient(b.o, true);
     const holes = (b.i || []).map((h) => orient(h, false));
     const bbox = bboxOf(outer);
-    const area = Math.abs(signedArea(outer));
     const c = centroid(outer);
+    let zone = null;
+    for (const z of this.zones) {
+      if (c[0] < z.bbox.minX || c[0] > z.bbox.maxX || c[1] < z.bbox.minZ || c[1] > z.bbox.maxZ) continue;
+      if (pointInShape(c[0], c[1], z.o, z.i)) { zone = z.k; break; }
+    }
     return {
-      idx, id: b.id, type: b.t, name: b.n, amenity: b.a, tagH: b.h, tagLevels: b.l,
-      outer, holes, bbox, area, cx: c[0], cz: c[1],
-      solid: b.t !== 'roof' && b.t !== 'carport',
+      id: b.id, type: b.t, name: b.n, amenity: b.a, tagH: b.h, tagLevels: b.l, minH: b.mh || 0,
+      colour: b.c, clipped: !!b.clipped, zone,
+      outer, holes, bbox, area: Math.abs(signedArea(outer)), cx: c[0], cz: c[1],
+      solid: b.t !== 'roof' && b.t !== 'carport' && !(b.mh > 2.5),
       height: 6, pois: [],
     };
   }
 
-  _addPolyCollider(outer, holes, bbox, ref) {
-    const item = { outer, holes, bbox, ref };
-    this.colliders.insert(item, bbox.minX, bbox.minZ, bbox.maxX, bbox.maxZ);
-  }
-
-  addBoxCollider(cx, cz, ux, uz, hu, hv, height) {
+  addBoxCollider(cx, cz, ux, uz, hu, hv) {
     const vx = -uz, vz = ux;
-    const outer = [
-      [cx - ux * hu - vx * hv, cz - uz * hu - vz * hv],
-      [cx + ux * hu - vx * hv, cz + uz * hu - vz * hv],
-      [cx + ux * hu + vx * hv, cz + uz * hu + vz * hv],
-      [cx - ux * hu + vx * hv, cz - uz * hu + vz * hv],
-    ];
-    orient(outer, true);
-    this._addPolyCollider(outer, [], bboxOf(outer), { height, box: true });
+    const outer = orient([
+      [cx - ux * hu - vx * hv, cz - uz * hu - vz * hv], [cx + ux * hu - vx * hv, cz + uz * hu - vz * hv],
+      [cx + ux * hu + vx * hv, cz + uz * hu + vz * hv], [cx - ux * hu + vx * hv, cz - uz * hu + vz * hv],
+    ], true);
+    const bbox = bboxOf(outer);
+    this.dynColliders.insert({ outer, holes: [], bbox }, bbox.minX, bbox.minZ, bbox.maxX, bbox.maxZ);
   }
 
   addCircleCollider(x, z, r) {
@@ -144,103 +154,166 @@ export class World {
   }
 
   addRaised(ax, az, bx, bz, hw) {
-    this.raised.insert({ ax, az, bx, bz, hw }, Math.min(ax, bx) - hw, Math.min(az, bz) - hw,
-      Math.max(ax, bx) + hw, Math.max(az, bz) + hw);
+    this.raised.insert({ ax, az, bx, bz, hw }, ...segBox([ax, az], [bx, bz], hw));
+  }
+}
+
+function computeJunctions(roads) {
+  const map = new Map();
+  roads.forEach((r, ri) => {
+    if (r.kind !== 'car' && r.kind !== 'service') return;
+    r.p.forEach((p, vi) => {
+      const k = `${p[0].toFixed(2)},${p[1].toFixed(2)}`;
+      let arr = map.get(k);
+      if (!arr) map.set(k, arr = []);
+      arr.push([ri, vi]);
+    });
+  });
+  const out = [];
+  for (const uses of map.values()) {
+    if (new Set(uses.map((u) => u[0])).size < 2) continue;
+    const [ri, vi] = uses[0];
+    out.push({ x: roads[ri].p[vi][0], z: roads[ri].p[vi][1], r: uses });
+  }
+  return out;
+}
+
+// The streamed world: a set of chunk indexes, queried by position.
+export class World {
+  constructor(frame) {
+    this.frame = frame;
+    this.chunks = new Map();
+    this.placeName = null;
   }
 
-  inCore(x, z, margin = 0) {
-    const c = this.core;
-    return x > c.minX + margin && x < c.maxX - margin && z > c.minZ + margin && z < c.maxZ - margin;
+  add(ci) { this.chunks.set(ci.key, ci); }
+  remove(key) { this.chunks.delete(key); }
+
+  // Chunk indexes overlapping the box around (x, z) with radius r.
+  near(x, z, r = 0) {
+    const a = this.frame.tileAt(x - r, z - r, CHUNK_ZOOM), b = this.frame.tileAt(x + r, z + r, CHUNK_ZOOM);
+    const out = [];
+    for (let tx = a.x; tx <= b.x; tx++) for (let ty = a.y; ty <= b.y; ty++) {
+      const c = this.chunks.get(`${CHUNK_ZOOM}/${tx}/${ty}`);
+      if (c) out.push(c);
+    }
+    return out;
   }
 
   buildingAt(x, z) {
-    for (const b of this.buildingHash.near(x, z, 0)) {
-      if (x < b.bbox.minX || x > b.bbox.maxX || z < b.bbox.minZ || z > b.bbox.maxZ) continue;
-      if (pointInShape(x, z, b.outer, b.holes)) return b;
+    for (const c of this.near(x, z)) {
+      for (const b of c.buildingHash.near(x, z, 0)) {
+        if (x < b.bbox.minX || x > b.bbox.maxX || z < b.bbox.minZ || z > b.bbox.maxZ) continue;
+        if (pointInShape(x, z, b.outer, b.holes)) return b;
+      }
     }
     return null;
   }
 
+  buildingsNear(x, z, r) {
+    return this.near(x, z, r).flatMap((c) => c.buildingHash.near(x, z, r));
+  }
+
   heightAt(x, z) {
     const b = this.buildingAt(x, z);
-    return b && b.solid ? b.height : 0;
+    return b && b.solid ? b.top || b.height : 0;
   }
 
   groundAt(x, z) {
-    for (const s of this.raised.near(x, z, 0)) {
-      if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d <= s.hw) return SIDEWALK_Y;
+    for (const c of this.near(x, z)) {
+      for (const s of c.raised.near(x, z, 0)) {
+        if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d <= s.hw) return SIDEWALK_Y;
+      }
     }
     return 0;
   }
 
-  // Distance from point to the nearest car/service road surface centerline.
   nearestRoad(x, z, maxD = 40, filter = (r) => r.kind === 'car') {
     let best = null;
-    for (const s of this.roadHash.near(x, z, maxD)) {
-      if (!filter(s.road)) continue;
-      const c = closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz);
-      if (c.d <= maxD && (!best || c.d < best.d)) best = { road: s.road, x: c.x, z: c.z, d: c.d, seg: s.i };
+    for (const c of this.near(x, z, maxD)) {
+      for (const s of c.roadHash.near(x, z, maxD)) {
+        if (!filter(s.road)) continue;
+        const q = closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz);
+        if (q.d <= maxD && (!best || q.d < best.d)) best = { road: s.road, x: q.x, z: q.z, d: q.d, seg: s.i };
+      }
     }
     return best;
   }
 
-  // True if the point lies on the asphalt of a car/service road (other than `except`).
   onRoad(x, z, pad = 0, except = null, kinds = ROAD_KINDS) {
-    for (const s of this.roadHash.near(x, z, 0)) {
-      const r = s.road;
-      if (r === except || !kinds.has(r.kind)) continue;
-      if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d < r.hw + pad) return true;
+    for (const c of this.near(x, z, 20)) {
+      for (const s of c.roadHash.near(x, z, Math.max(0, pad))) {
+        const r = s.road;
+        if (r === except || !kinds.has(r.kind)) continue;
+        if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d < r.hw + pad) return true;
+      }
+    }
+    return false;
+  }
+
+  nearPath(x, z, d) {
+    for (const c of this.near(x, z, d + 3)) {
+      for (const s of c.pathSegs.near(x, z, d + 3)) {
+        if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d < s.hw + d) return true;
+      }
+    }
+    return false;
+  }
+
+  nearSidewalk(x, z, d) {
+    for (const c of this.near(x, z, d)) {
+      for (const s of c.sidewalkSegs.near(x, z, d)) {
+        if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d < d) return true;
+      }
     }
     return false;
   }
 
   nearestJunction(x, z, maxD) {
     let best = null, bd = maxD;
-    for (const j of this.junctionHash.near(x, z, maxD)) {
-      const d = Math.hypot(j.x - x, j.z - z);
-      if (d < bd) { bd = d; best = j; }
+    for (const c of this.near(x, z, maxD)) {
+      for (const j of c.junctionHash.near(x, z, maxD)) {
+        const d = Math.hypot(j.x - x, j.z - z);
+        if (d < bd) { bd = d; best = j; }
+      }
     }
     return best;
-  }
-
-  nearJunction(x, z, extra) {
-    for (const j of this.junctionHash.near(x, z, 30)) {
-      if (j.carArms.length < 2 && j.arms.length < 3) continue;
-      if (Math.hypot(j.x - x, j.z - z) < j.radius + extra) return true;
-    }
-    return false;
   }
 
   // Push a circle of radius r out of building/car polygons and round colliders.
   resolveCircle(x, z, r) {
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
-      for (const c of this.colliders.near(x, z, r + 0.5)) {
-        const bb = c.bbox;
-        if (x < bb.minX - r || x > bb.maxX + r || z < bb.minZ - r || z > bb.maxZ + r) continue;
-        const inside = pointInShape(x, z, c.outer, c.holes);
-        let best = null;
-        for (const ring of [c.outer, ...c.holes]) {
-          for (let i = 0; i < ring.length; i++) {
-            const a = ring[i], b = ring[(i + 1) % ring.length];
-            const q = closestOnSeg(x, z, a[0], a[1], b[0], b[1]);
-            if (!best || q.d < best.d) best = q;
+      for (const ch of this.near(x, z, r + 0.5)) {
+        for (const hash of [ch.colliders, ch.dynColliders]) {
+          for (const c of hash.near(x, z, r + 0.5)) {
+            const bb = c.bbox;
+            if (x < bb.minX - r || x > bb.maxX + r || z < bb.minZ - r || z > bb.maxZ + r) continue;
+            const inside = pointInShape(x, z, c.outer, c.holes);
+            let best = null;
+            for (const ring of [c.outer, ...c.holes]) {
+              for (let i = 0; i < ring.length; i++) {
+                const a = ring[i], b = ring[(i + 1) % ring.length];
+                const q = closestOnSeg(x, z, a[0], a[1], b[0], b[1]);
+                if (!best || q.d < best.d) best = q;
+              }
+            }
+            if (!best) continue;
+            if (inside) {
+              const dx = best.x - x, dz = best.z - z, l = Math.hypot(dx, dz) || 1e-6;
+              x = best.x + (dx / l) * r; z = best.z + (dz / l) * r; moved = true;
+            } else if (best.d < r) {
+              const dx = x - best.x, dz = z - best.z, l = best.d || 1e-6;
+              x = best.x + (dx / l) * r; z = best.z + (dz / l) * r; moved = true;
+            }
           }
         }
-        if (!best) continue;
-        if (inside) {
-          const dx = best.x - x, dz = best.z - z, l = Math.hypot(dx, dz) || 1e-6;
-          x = best.x + (dx / l) * r; z = best.z + (dz / l) * r; moved = true;
-        } else if (best.d < r) {
-          const dx = x - best.x, dz = z - best.z, l = best.d || 1e-6;
-          x = best.x + (dx / l) * r; z = best.z + (dz / l) * r; moved = true;
-        }
-      }
-      for (const c of this.circles.near(x, z, r + 0.5)) {
-        const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), m = r + c.r;
-        if (d < m) {
-          const l = d || 1e-6;
-          x = c.x + (dx / l) * m; z = c.z + (dz / l) * m; moved = true;
+        for (const c of ch.circles.near(x, z, r + 0.5)) {
+          const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), m = r + c.r;
+          if (d < m) {
+            const l = d || 1e-6;
+            x = c.x + (dx / l) * m; z = c.z + (dz / l) * m; moved = true;
+          }
         }
       }
       if (!moved) break;
@@ -253,7 +326,7 @@ export class World {
     return Math.hypot(nx - x, nz - z) > 0.01;
   }
 
-  // Name of the street the point is on/near, and a cross street if near an intersection.
+  // Street, cross street and area name for the HUD.
   locate(x, z) {
     const near = this.nearestRoad(x, z, 30, (r) => r.kind === 'car' && r.n);
     let street = near ? near.road.n : null;
@@ -267,18 +340,28 @@ export class World {
       }
     }
     let area = null;
-    for (const a of this.areas) {
-      if (!a.n || a.k === 'parking') continue;
-      if (x < a.bbox.minX || x > a.bbox.maxX || z < a.bbox.minZ || z > a.bbox.maxZ) continue;
-      if (pointInShape(x, z, a.o, a.i) && (!area || a.size < area.size)) area = a;
+    for (const c of this.near(x, z)) {
+      for (const a of c.areas) {
+        if (!a.n || a.k === 'parking') continue;
+        if (x < a.bbox.minX || x > a.bbox.maxX || z < a.bbox.minZ || z > a.bbox.maxZ) continue;
+        if (pointInShape(x, z, a.o, a.i) && (!area || a.size < area.size)) area = a;
+      }
     }
-    return { street, cross, area: area ? area.n : null };
-  }
-
-  streetPoint(road, x, z) {
-    return closestOnPolyline(x, z, road.p);
+    let place = null, pd = 1500;
+    for (const c of this.near(x, z, 1500)) {
+      for (const p of c.places) {
+        if (!['neighbourhood', 'suburb', 'quarter'].includes(p.k)) continue;
+        const d = Math.hypot(p.x - x, p.z - z);
+        if (d < pd) { pd = d; place = p.n; }
+      }
+    }
+    return { street, cross, area: area ? area.n : place || this.placeName };
   }
 }
 
-const ROAD_KINDS = new Set(['car', 'service']);
-export const CAR_ONLY = new Set(['car']);
+export function colorFromTag(c) {
+  if (!c) return null;
+  if (/^#[0-9a-f]{6}$/.test(c) || /^#[0-9a-f]{3}$/.test(c)) return new THREE.Color(c);
+  if (c in THREE.Color.NAMES) return new THREE.Color(THREE.Color.NAMES[c]);
+  return null;
+}

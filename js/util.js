@@ -33,6 +33,16 @@ export function rng(seed) {
   };
 }
 
+// Cooperative time-slicing: long loops call `await budget.tick()` so the game keeps rendering.
+export class Budget {
+  constructor(ms = 6) { this.ms = ms; this.t = performance.now(); }
+  async tick() {
+    if (performance.now() - this.t < this.ms) return;
+    await new Promise((r) => setTimeout(r, 0));
+    this.t = performance.now();
+  }
+}
+
 export function pick(arr, r) {
   return arr[Math.floor(r * arr.length) % arr.length];
 }

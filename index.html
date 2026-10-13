@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Open World</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" />
 <style>
   :root { --panel: rgba(18, 22, 28, 0.72); --text: #f3f5f7; --muted: #aab3bd; --accent: #ff7a45; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2128; color: var(--text);
@@ -12,6 +13,13 @@
   #tags { pointer-events: none; overflow: hidden; z-index: 4; }
   canvas { display: block; }
   .hidden { display: none !important; }
+  kbd { background: rgba(255,255,255,0.14); color: var(--text); border-radius: 4px; padding: 0 5px;
+    font: 11px ui-monospace, monospace; }
+
+  /* Which screen is showing */
+  body:not([data-mode="street"]) .street-ui { display: none !important; }
+  body:not([data-mode="globe"]) .globe-ui { display: none !important; }
+  body:not([data-mode="loading"]):not([data-mode="boot"]) #loading { display: none; }
 
   /* Floating tags */
   .tag { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; align-items: center; gap: 6px;
@@ -27,23 +35,23 @@
     font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
   .tag.street::after { border-top-color: rgba(30, 107, 69, 0.92); }
 
-  /* HUD */
+  /* Street HUD */
   #where { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 6;
     background: var(--panel); padding: 7px 16px; border-radius: 999px; font-size: 14px; pointer-events: none;
-    backdrop-filter: blur(6px); display: flex; gap: 10px; align-items: baseline; white-space: nowrap; }
-  #where span { color: var(--muted); font-size: 12px; }
+    backdrop-filter: blur(6px); display: flex; gap: 10px; align-items: baseline; white-space: nowrap; max-width: calc(100vw - 520px); overflow: hidden; }
+  #where span { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
   #labelmode { position: absolute; top: 14px; right: 14px; z-index: 6; display: flex; align-items: center; gap: 2px;
     background: var(--panel); padding: 4px; border-radius: 999px; backdrop-filter: blur(6px); font-size: 12px; }
   #labelmode .k { color: var(--muted); padding: 0 8px 0 10px; }
-  #labelmode button { border: 0; background: transparent; color: var(--text); font: inherit; padding: 5px 11px;
+  #labelmode button, .pill { border: 0; background: transparent; color: var(--text); font: inherit; padding: 5px 11px;
     border-radius: 999px; cursor: pointer; }
   #labelmode button.on { background: var(--accent); color: #fff; }
-  #fps { position: absolute; left: 14px; top: 14px; z-index: 6; font-size: 11px; color: var(--muted);
-    background: var(--panel); padding: 3px 8px; border-radius: 6px; pointer-events: none; }
+  #topleft { position: absolute; left: 14px; top: 14px; z-index: 6; display: flex; gap: 8px; align-items: center; }
+  #to-globe { background: var(--panel); color: var(--text); border: 0; border-radius: 999px; padding: 6px 12px;
+    font: 12px system-ui; cursor: pointer; backdrop-filter: blur(6px); }
+  #fps { font-size: 11px; color: var(--muted); background: var(--panel); padding: 3px 8px; border-radius: 6px; pointer-events: none; }
   #help { position: absolute; left: 14px; bottom: 14px; z-index: 6; font-size: 11.5px; color: var(--muted);
     background: var(--panel); padding: 7px 10px; border-radius: 8px; line-height: 1.7; pointer-events: none; }
-  kbd { background: rgba(255,255,255,0.14); color: var(--text); border-radius: 4px; padding: 0 5px;
-    font: 11px ui-monospace, monospace; }
   #minimap { position: absolute; right: 14px; bottom: 30px; width: 170px; height: 170px; z-index: 6; border-radius: 50%;
     box-shadow: 0 0 0 3px rgba(255,255,255,0.85), 0 6px 18px rgba(0,0,0,0.4); }
   #attrib { position: absolute; right: 10px; bottom: 6px; z-index: 6; font-size: 10.5px; color: var(--muted);
@@ -62,8 +70,8 @@
     transition: opacity .2s; background: var(--panel); padding: 6px 14px; border-radius: 8px; font-size: 13px; pointer-events: none; }
   #flash.show { opacity: 1; }
 
-  /* Overlays */
-  #intro, #loading, #mapview { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; }
+  /* Click-to-play panel */
+  #intro, #loading { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; }
   #intro { background: rgba(14, 18, 24, 0.55); backdrop-filter: blur(3px); }
   .panel { background: rgba(20, 25, 32, 0.92); border-radius: 16px; padding: 26px 30px; max-width: 440px;
     box-shadow: 0 16px 50px rgba(0,0,0,0.5); }
@@ -71,60 +79,86 @@
   .panel p { margin: 0 0 16px; color: var(--muted); font-size: 14px; line-height: 1.5; }
   .controls { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 20px; }
   .controls span:nth-child(odd) { color: var(--muted); }
-  #play { width: 100%; border: 0; border-radius: 10px; padding: 12px; font: 600 15px system-ui; cursor: pointer;
+  .btn { width: 100%; border: 0; border-radius: 10px; padding: 12px; font: 600 15px system-ui; cursor: pointer;
     background: var(--accent); color: #fff; }
   #loading { background: #1b2128; flex-direction: column; gap: 14px; }
   #loading .track { width: 260px; height: 6px; background: #333b45; border-radius: 3px; overflow: hidden; }
   #loading-bar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
   #loading-text { color: var(--muted); font-size: 14px; }
-  #mapview { background: #1b2128; }
-  #fullmap { width: 100%; height: 100%; cursor: crosshair; }
-  #mapclose { position: absolute; top: 14px; right: 14px; border: 0; border-radius: 999px; padding: 8px 14px;
-    background: var(--panel); color: var(--text); font: 13px system-ui; cursor: pointer; }
-  #maphint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: var(--panel);
-    padding: 7px 14px; border-radius: 999px; font-size: 13px; color: var(--muted); pointer-events: none; }
 
-  @media (max-width: 720px) { #help { display: none; } #card { max-width: calc(100vw - 32px); } }
+  /* Globe */
+  #globe { position: absolute; inset: 0; z-index: 10; background: radial-gradient(ellipse at center, #1d2b45 0%, #0b1020 70%); }
+  .globe-ui { z-index: 12; }
+  #search-box { position: absolute; top: 14px; left: 14px; width: min(380px, calc(100vw - 28px)); }
+  #search { display: flex; background: rgba(255,255,255,0.97); border-radius: 12px; box-shadow: 0 6px 22px rgba(0,0,0,0.3); overflow: hidden; }
+  #search input { flex: 1; border: 0; padding: 12px 14px; font: 15px system-ui; outline: none; color: #22272e; background: transparent; min-width: 0; }
+  #search button { border: 0; background: var(--accent); color: #fff; font: 600 14px system-ui; padding: 0 16px; cursor: pointer; }
+  #results { margin-top: 6px; background: rgba(255,255,255,0.97); border-radius: 12px; overflow: hidden; box-shadow: 0 6px 22px rgba(0,0,0,0.3); }
+  #results:empty { display: none; }
+  #results button { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid #eceef1; background: transparent;
+    padding: 10px 14px; font: 13px system-ui; color: #22272e; cursor: pointer; }
+  #results button:first-child { border-top: 0; }
+  #results button:hover { background: #f3f5f8; }
+  #results .msg { padding: 10px 14px; font: 13px system-ui; color: #5b636d; }
+  #search-credit { margin-top: 4px; font-size: 10.5px; color: rgba(255,255,255,0.7); text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+  #pin { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -22px 0 0 -11px; pointer-events: none; }
+  #pin::before { content: ''; position: absolute; inset: 0; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+    background: var(--accent); box-shadow: 0 2px 6px rgba(0,0,0,0.4); border: 2px solid #fff; }
+  #globe-actions { position: absolute; left: 50%; bottom: 32px; transform: translateX(-50%); display: flex; gap: 10px; }
+  #walk, #globe-back { border: 0; border-radius: 999px; padding: 13px 26px; font: 600 15px system-ui; cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+  #walk { background: var(--accent); color: #fff; }
+  #walk.dim { background: #3b4450; color: #d6dbe0; }
+  #globe-back { background: rgba(255,255,255,0.95); color: #22272e; }
+
+  @media (max-width: 720px) { #help { display: none; } #card { max-width: calc(100vw - 32px); } #where { max-width: calc(100vw - 28px); top: 56px; } }
 </style>
 </head>
-<body>
+<body data-mode="boot">
 <div id="world"></div>
 <div id="tags"></div>
 
-<div id="where"><b>Downtown Davis</b></div>
-<div id="labelmode"><span class="k">Labels <kbd>L</kbd></span>
+<div id="where" class="street-ui"><b>Exploring</b></div>
+<div id="topleft" class="street-ui"><button id="to-globe">Globe <kbd>G</kbd></button><span id="fps"></span></div>
+<div id="labelmode" class="street-ui"><span class="k">Labels <kbd>L</kbd></span>
   <button data-mode="tags">Tags</button><button data-mode="signs">Signs</button><button data-mode="off">Off</button>
 </div>
-<div id="fps"></div>
-<div id="help">
+<div id="help" class="street-ui">
   <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> run &nbsp; <kbd>Space</kbd> jump<br>
-  Mouse look &nbsp; wheel zoom &nbsp; <kbd>M</kbd> map &nbsp; <kbd>R</kbd> respawn &nbsp; <kbd>Esc</kbd> pause
+  Mouse look &nbsp; wheel zoom &nbsp; <kbd>M</kbd> map &nbsp; <kbd>G</kbd> globe &nbsp; <kbd>Esc</kbd> pause
 </div>
-<canvas id="minimap" width="340" height="340"></canvas>
-<div id="attrib">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a></div>
-<div id="card"></div>
+<canvas id="minimap" class="street-ui" width="340" height="340"></canvas>
+<div id="attrib" class="street-ui">© <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> Data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a></div>
+<div id="card" class="street-ui"></div>
 <div id="flash"></div>
 
-<div id="intro" class="hidden">
+<div id="intro" class="hidden street-ui">
   <div class="panel">
     <h1>Open World</h1>
-    <p>The real world, built from OpenStreetMap, starting in downtown Davis, CA: B &amp; C Streets, 1st to 5th. Walk up to a place to see what it is.</p>
+    <p>Every street, building and shop here comes from OpenStreetMap. Walk up to a place to see what it is, or open the globe to go anywhere on Earth.</p>
     <div class="controls">
       <span>Move</span><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span>
       <span>Run / jump</span><span><kbd>Shift</kbd> / <kbd>Space</kbd></span>
       <span>Look</span><span>Mouse (or <kbd>Q</kbd> <kbd>E</kbd>)</span>
       <span>Labels</span><span><kbd>L</kbd> — tags, signs, or off</span>
-      <span>Map</span><span><kbd>M</kbd> — click the map to jump there</span>
+      <span>Map</span><span><kbd>M</kbd> — pick a spot nearby</span>
+      <span>Globe</span><span><kbd>G</kbd> — fly out and go anywhere</span>
       <span>Respawn</span><span><kbd>R</kbd></span>
     </div>
-    <button id="play">Click to play</button>
+    <button id="play" class="btn">Click to play</button>
   </div>
 </div>
 
-<div id="mapview" class="hidden">
-  <canvas id="fullmap"></canvas>
-  <div id="maphint">Click anywhere to go there</div>
-  <button id="mapclose">Close map <kbd>M</kbd></button>
+<div id="globe" class="hidden"></div>
+<div id="search-box" class="globe-ui">
+  <form id="search"><input id="search-q" type="search" placeholder="Search any place on Earth" autocomplete="off" /><button>Search</button></form>
+  <div id="results"></div>
+  <div id="search-credit">Search by <a href="https://nominatim.org" target="_blank" rel="noopener" style="color:inherit">Nominatim</a> · © OpenStreetMap contributors</div>
+</div>
+<div id="pin" class="globe-ui"></div>
+<div id="globe-actions" class="globe-ui">
+  <button id="globe-back" class="hidden">Back to street</button>
+  <button id="walk">Walk here</button>
 </div>
 
 <div id="loading">
@@ -132,6 +166,7 @@
   <div class="track"><div id="loading-bar"></div></div>
 </div>
 
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script type="importmap">
 {
   "imports": {

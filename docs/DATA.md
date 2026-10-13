@@ -1,111 +1,86 @@
 # Data formats
 
-All data comes from [OpenStreetMap](https://www.openstreetmap.org) through the Overpass API and
-is © OpenStreetMap contributors under the
-[Open Database License](https://www.openstreetmap.org/copyright).
+All map data comes from [OpenStreetMap](https://www.openstreetmap.org) and is
+© OpenStreetMap contributors under the [Open Database License](https://www.openstreetmap.org/copyright).
 
-`server.py` converts it into compact JSON. Coordinates are **meters** relative to
-`WORLD.origin`, as `[x, z]` pairs: `+x` east, `+z` south. Short field names keep payloads
-small; optional fields are omitted when OSM has no value. Inspect any dataset with:
+## Sources
 
-```bash
-curl -s --compressed localhost:8080/data/pois.json | python3 -m json.tool | head -50
-```
+| Source | Covers | Delivered as | Has |
+| --- | --- | --- | --- |
+| [OpenFreeMap](https://openfreemap.org) vector tiles, [OpenMapTiles](https://openmaptiles.org/schema/) schema | The whole planet, updated weekly | z14 `.pbf` tiles fetched by the browser | Building footprints with heights/colours, roads by class with names, landcover/landuse, water, named places, neighborhoods |
+| Detail tiles from `tools/build_detail.py` (Overpass API) | Tiles listed in `DETAIL_TILES` (downtown Davis today) | `data/detail/14/<x>/<y>.json` + `data/detail/index.json` | Everything above plus building types, mapped sidewalks/crossings, lanes/width tags, trees, benches, lamps, hydrants, addresses, opening hours, cuisine, websites |
 
-## `meta.json`
+Both are converted to the **common format** below, with coordinates in tile units
+(`0..extent`, y pointing south) and then to meters by `toLocal()` in `js/tiledata.js`.
+
+## Common tile format
 
 ```json
 {
-  "name": "Downtown Davis",
-  "origin": { "lat": 38.544, "lon": -121.7442 },
-  "metersPerDegLat": 111132.0,
-  "metersPerDegLon": 87066.7,
-  "core":    { "minX": -348.3, "maxX": 278.6, "minZ": -422.3, "maxZ": 444.5 },
-  "context": { "minX": -766.2, "maxX": 714.0, "minZ": -833.5, "maxZ": 833.5 },
-  "datasets": ["buildings", "roads", "pois", "areas", "trees", "props", "context_buildings", "context_roads"]
+  "extent": 4096,
+  "buildings": [Building], "roads": [Road], "pois": [Place], "places": [Locality],
+  "areas": [Area], "zones": [Zone], "lines": [Waterway], "trees": [[x, z, leaf, height]], "props": [Prop]
 }
 ```
 
-## Datasets
+Detail files also carry `"version"` (`PROCESS_VERSION` of the build tool) and `"source"`.
 
-| Name | Area | Overpass source | Required |
-| --- | --- | --- | --- |
-| `buildings` | core | `way`/`relation` with `building` | yes |
-| `roads` | core | `way` with `highway` | yes |
-| `pois` | core | named `amenity`, `shop`, `tourism`, `leisure`, `office`, `craft`, `historic`, `healthcare`, stations; `place` neighborhoods | no |
-| `areas` | core | parks, grass, pitches, playgrounds, water, woods, farmland, parking, plazas, waterways | no |
-| `trees` | core | `natural=tree` nodes, `natural=tree_row` ways | no |
-| `props` | core | benches, bike parking, street lamps, bins, hydrants, post boxes, drinking water, stop signs, traffic signals | no |
-| `context_buildings` | context | same as `buildings` | no |
-| `context_roads` | context | car and service roads only | no |
-
-### `buildings` → `{ "buildings": [Building] }`
+### Building
 
 | Field | Meaning |
 | --- | --- |
-| `id` | OSM way/relation id |
-| `o` | Outer ring `[[x, z], ...]` (not closed; orientation not guaranteed) |
+| `id` | OSM id (detail) or a stable id derived from the geometry (vector) |
+| `o` | Outer ring `[[x, z], ...]` (not closed) |
 | `i` | Inner rings (courtyards), optional |
-| `t` | `building` tag value (`house`, `commercial`, `university`, `yes`, …) |
-| `h` | Height in meters from `height`, optional |
-| `l` | `building:levels`, optional |
-| `n` | Name, optional |
-| `a` | `amenity`, optional |
+| `t` | OSM `building` value (`house`, `commercial`, …); always `yes` from vector tiles |
+| `h` | Height in meters, optional |
+| `l` | Floors, optional (vector tiles: derived from `render_height` / 3.66) |
+| `mh` | Minimum height (building parts lifted off the ground), optional |
+| `c` | Colour: hex or CSS name, optional |
+| `n`, `a` | Name and `amenity`, optional (detail only) |
 
-Multipolygon relations are assembled from their member ways; each outer ring becomes its own
-entry with the inner rings that fall inside it.
-
-### `roads` → `{ "roads": [Road], "junctions": [Junction] }`
+### Road
 
 | Field | Meaning |
 | --- | --- |
-| `id` | OSM way id |
-| `t` | `highway` value (`residential`, `tertiary`, `footway`, `service`, …) |
+| `id` | OSM way id (detail) or derived id (vector) |
+| `t` | Highway type: `motorway`, `primary`, …, `residential` (vector `minor`), `service`, `footway`, `cycleway`, `path`, `pedestrian`, `steps`, `track`, `*_link` |
 | `p` | Polyline `[[x, z], ...]` |
-| `n` | Name |
-| `ln`, `w` | Lanes, width (m) |
-| `ow` | `1` if one-way |
-| `sw`, `swb`, `swl`, `swr` | `sidewalk`, `sidewalk:both`, `sidewalk:left`, `sidewalk:right` |
-| `fw` | `footway` (`sidewalk`, `crossing`, …) |
-| `cr`, `cm` | `crossing`, `crossing:markings` |
-| `sv`, `su` | `service`, `surface` |
+| `n` | Name (vector: matched from the `transportation_name` layer) |
+| `ow` | `1` if one-way (vector `oneway: -1` is reversed to `1`) |
+| `sv` | `service` value (`driveway`, `parking_aisle`, `alley`, …) |
 | `tu`, `br`, `ar` | `1` if tunnel, bridge, or `area=yes` |
+| `fw` | `footway` (`sidewalk`, `crossing`); for vector tiles set by geometry in `classifyFootways` |
+| `w`, `ln` | Width (m) and lanes; `w` is also set by `fitRoadWidths` for narrow streets |
+| `sw`, `swb`, `swl`, `swr`, `cr`, `cm`, `su` | Sidewalk, crossing and surface tags (detail only) |
 
-A **junction** is an OSM node shared by two or more car/service roads:
-`{ "x", "z", "r": [[roadIndex, vertexIndex], ...] }`, where `roadIndex` indexes `roads`.
-
-### `pois` → `{ "pois": [Place] }`
+### Place (`pois`)
 
 | Field | Meaning |
 | --- | --- |
-| `id` | `n123`, `w123` or `r123` (node/way/relation) |
-| `x`, `z` | Point (node position, or center of a way/relation) |
-| `n` | Name |
-| `c` | Category: `food`, `shop`, `money`, `health`, `education`, `worship`, `culture`, `civic`, `transport`, `lodging`, `leisure`, `office`, `service`, `place` |
-| `k` | Human-readable kind, e.g. `Restaurant`, `Ice cream`, `Post office` |
-| `ar` | `1` if it came from an area (way/relation) |
-| `ad`, `oh`, `cu`, `w`, `ph`, `d` | Address, opening hours, cuisine, website, phone, description |
+| `id` | `n123`/`w123`/`r123` (detail) or `v<hash>` (vector) |
+| `x`, `z` | Point |
+| `n` | Name (in the local language, any script) |
+| `c` | Category: `food`, `shop`, `money`, `health`, `education`, `worship`, `culture`, `civic`, `transport`, `lodging`, `leisure`, `office`, `service` |
+| `k` | Human-readable kind, e.g. `Restaurant`, `Clothes`, `Post office` |
+| `ad`, `oh`, `cu`, `w`, `ph` | Address, opening hours, cuisine, website, phone (detail only) |
 
-### `areas` → `{ "areas": [Area], "lines": [Waterway] }`
+### Others
 
-Area: `k` (kind: `grass`, `wood`, `pitch`, `track`, `playground`, `sand`, `farm`, `water`,
-`parking`, `plaza`, `campus`), `o`, `i`, `n` (name), `le` (`leisure` value).
-Waterway: `{ "k": "stream" | "river" | "canal" | "ditch" | "drain", "p": [[x, z], ...] }`.
+- **Locality** (`places`): `{ x, z, n, k }` with `k` one of `neighbourhood`, `suburb`, `quarter`,
+  `city`, `town`, `village`, `hamlet`. Used for the "where am I" bar.
+- **Area**: `{ k, o, i?, n?, le? }`, `k` one of `grass`, `wood`, `pitch`, `track`, `playground`,
+  `sand`, `farm`, `water`, `parking`, `plaza`; `le` is the `leisure` value (`park`, `garden`).
+- **Zone** (vector only): landuse polygons `{ k, o, i? }` with `k` like `residential`,
+  `commercial`, `retail`, `industrial`, `school`, `university`, `hospital`, `railway`. Used to
+  infer building styles; not drawn.
+- **Waterway** (`lines`): `{ k: "river" | "stream" | "canal" | "ditch" | "drain", p }`.
+- **Tree**: `[x, z, leaf, height]`, `leaf` 0 unknown / 1 broadleaved / 2 needleleaved (detail only).
+- **Prop**: `{ k, x, z, dir? }`, `k` one of `bench`, `bikerack`, `lamp`, `bin`, `hydrant`,
+  `postbox`, `fountain`, `stop`, `signal` (detail only).
 
-### `trees` → `{ "trees": [[x, z, leaf, height]] }`
+## What the game adds that isn't in the data
 
-`leaf` is `0` unknown, `1` broadleaved, `2` needleleaved; `height` is meters or `0`.
-Tree rows are sampled every 9 m.
-
-### `props` → `{ "props": [{ "k", "x", "z", "dir"? }] }`
-
-`k` is one of `bench`, `bikerack`, `lamp`, `bin`, `hydrant`, `postbox`, `fountain`, `stop`,
-`signal`; `dir` is the OSM `direction` in degrees when tagged. The game currently draws benches,
-bike racks, hydrants and bins from this list, and uses mapped lamps only if at least 10 exist
-in the area (otherwise it generates lamps along streets).
-
-## What the game adds that isn't in OSM
-
-Generated, not mapped: sidewalks where none are mapped, street trees in planting strips, street
-lamps, parked cars, building heights (when untagged), facade details, roofs and colors. Treat
-these as decoration; the layout, names and footprints are real.
+Generated, not mapped: sidewalks where none are mapped, street trees, lamps, parked cars,
+building heights and styles when unknown, facade details, roofs and colours (unless tagged), and
+narrowed road widths. Treat these as decoration; the layout, names and footprints are real.

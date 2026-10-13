@@ -1,37 +1,37 @@
 # Open World
 
 An open world of the whole planet, built from real map data and explored on foot in third
-person. It starts with one neighborhood: downtown Davis, California. You spawn on C Street
-next to Central Park and can walk the real streets, sidewalks and crosswalks between B and C
-Streets from 1st to 5th. Every road, building, park and shop comes from
-[OpenStreetMap](https://www.openstreetmap.org), so the same approach works for any place on
-Earth. The world is generated in the browser in a clean, stylized look.
+person. Spin the globe, search for any place, zoom in to a street and walk it: every road,
+building, park and shop comes from [OpenStreetMap](https://www.openstreetmap.org), generated in
+the browser in a clean, stylized look. It starts in downtown Davis, California, which has extra
+detail.
 
-![Standing on C Street next to Central Park](docs/images/spawn.png)
+![Standing on C Street next to Central Park in Davis](docs/images/davis.png)
 
-| Storefront and street signs | Full map with teleport |
-| --- | --- |
-| ![Signs mode at B & 3rd Street](docs/images/signs.png) | ![Full map](docs/images/map.png) |
+| Go anywhere from the globe | Paris, Le Marais | Storefront and street signs in Davis |
+| --- | --- | --- |
+| ![Globe](docs/images/globe.png) | ![Paris](docs/images/paris.png) | ![Signs mode at B & 3rd Street](docs/images/signs.png) |
 
-Where it's going: from one neighborhood to anywhere in the world, streamed in as you move, and
-more realistic wherever people contribute real photos and video of places. See
-[docs/ROADMAP.md](docs/ROADMAP.md).
+Where it's going: more realistic places as people contribute real photos and video, and more
+detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features
 
+- **The whole world.** A 3D globe with place search; zoom in to any street and press
+  **Walk here**. Press `G` to fly back out. The world streams in around you as you walk.
 - **Third-person character** with walk, run and jump animations, an over-the-shoulder camera
   that avoids walls, and collision with buildings, trees, lamps and parked cars.
-- **Streets from real data**: lanes and center lines, stop lines, mapped crosswalks, raised
-  sidewalks with curbs and planting strips, footpaths, bike paths, parks and parking lots.
-- **Buildings from real footprints**: heights from OSM where tagged, otherwise estimated by
-  building type; houses get hip roofs, shops get storefront windows and awnings.
-- **Street life**: trees (mapped and generated along streets), street lamps, benches,
-  bike racks, hydrants and parked cars.
-- **Real places**: 100+ named businesses and buildings. Switch labels between floating
-  tags, physical signs (storefront signs, lawn signs, street-name blades at corners) or off.
-  Walk up to a place to see an info card with its address and hours.
-- **Navigation**: a rotating minimap, a full map with street names (click to teleport), and
-  a live "where am I" bar showing the street, cross street and park.
+- **Streets from real data**: road widths fitted to the buildings around them, center lines,
+  stop lines, crosswalks, raised sidewalks with curbs, footpaths, bike paths, parks and water.
+- **Buildings from real footprints**: real heights and colors where OpenStreetMap has them,
+  otherwise styles inferred from what's inside and the surrounding zone (houses, shops,
+  apartments, offices, warehouses, churches).
+- **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars.
+- **Real places in any language**: shop, restaurant and building names as floating tags or
+  physical signs (`L` switches), an info card when you walk up to a place, and a live
+  "where am I" bar with the street, cross street and neighborhood.
+- **Extra detail where it's been built**: selected areas (downtown Davis today) use richer
+  OpenStreetMap data with mapped sidewalks, crosswalks, trees, benches and opening hours.
 
 ## Quick start
 
@@ -42,15 +42,16 @@ install.
 python3 server.py
 ```
 
-Open <http://localhost:8080> and click **Click to play**.
+Open <http://localhost:8080>. The globe flies to Davis; press **Walk here** (or search for
+somewhere else first).
 
-On the first run the server downloads the map data from the public Overpass API, which can
-take one to three minutes (the loading bar waits for it). After that, everything is served
-from `.cache/` on disk and loads instantly.
+The server only serves files; map data is fetched by the browser and kept in its cache, so
+places you've visited load faster next time. The server listens on all interfaces, so other
+devices on your network or [Tailscale](https://tailscale.com) tailnet can play at
+`http://<this-machine's-ip>:8080`. Set `PORT=9000` to use a different port.
 
-The server listens on all interfaces, so other devices on your network or
-[Tailscale](https://tailscale.com) tailnet can play at `http://<this-machine's-ip>:8080`.
-Set `PORT=9000` to use a different port.
+Links: `http://localhost:8080/#48.85745,2.36154` starts walking at that latitude/longitude;
+the address bar keeps your current position so you can share it.
 
 ## Controls
 
@@ -61,52 +62,58 @@ Set `PORT=9000` to use a different port.
 | Look | Mouse (or `Q` / `E`); if the mouse can't be captured, click and drag |
 | Zoom camera | Mouse wheel |
 | Labels: tags → signs → off | `L` |
-| Full map (click to teleport) | `M` |
-| Respawn at C & 3rd | `R` |
+| Map of where you are (pick a spot to walk to) | `M` |
+| Fly out to the globe | `G` |
+| Respawn where you walked in | `R` |
 | Pause / release mouse | `Esc` |
 
 ## How it works
 
 ```
-OpenStreetMap (Overpass API)
-        │  downloaded once per area
-        ▼
-server.py ── converts to compact JSON in local meters ── .cache/  (served gzipped)
-        │
-        ▼
-Browser (three.js) ── builds streets, buildings, trees and props from the data on every load
+Globe (MapLibre + OpenFreeMap) ──"Walk here"──▶ street world at that point
+                                                 │
+ OpenFreeMap vector tiles (whole planet) ────────┤  browser downloads ~2 km tiles,
+ data/detail/*.json (pre-built richer areas) ────┘  cuts them into ~500 m chunks and
+                                                    builds streets, buildings and props
+                                                    around the player as they move
 ```
 
-The server only downloads, converts and serves data; all geometry is generated in the browser.
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the details and
-[docs/DATA.md](docs/DATA.md) for the data formats.
+Everything runs in the browser; `server.py` is a plain file server. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details and [docs/DATA.md](docs/DATA.md) for
+the data formats.
 
 ## Project layout
 
 ```
-server.py            HTTP server + OSM download/convert/cache (Python standard library only)
-index.html           Page, HUD styles, three.js import map
-js/main.js           Boot: renderer, sky/sun, loading, input, HUD, game loop
-js/world.js          World model: spatial indexes, collision, curb heights, street lookup
-js/streets.js        Ground, parks, roads, markings, crosswalks, sidewalks, furniture spots
-js/buildings.js      Building styles, heights, facades, roofs
-js/props.js          Trees, lamps, benches, bike racks, hydrants, parked cars (instanced)
-js/labels.js         Place labels: floating tags, 3D signs, street signs, info-card lookup
-js/minimap.js        Minimap and full map
-js/character.js      Procedural stylized character and its animation
-js/player.js         Movement, collision response, third-person camera
-js/util.js           Geometry helpers, spatial hash, mesh builder
-tools/screenshot.py  Headless screenshots for checking visual changes
-docs/                Architecture, data formats, roadmap, images
+index.html              Page, HUD and globe UI, styles, script/import map
+js/main.js              Boot, screens (globe/loading/street), input, HUD, game loop, spawning
+js/globe.js             MapLibre globe, place search and reverse geocoding (Nominatim)
+js/geo.js               Web Mercator tiles and the local metric frame around the walk-in point
+js/tiledata.js          Load a tile (vector or detail) and convert it to the common format
+js/mvt.js               Minimal Mapbox Vector Tile decoder
+js/chunks.js            Streaming: tile prep, clipping into chunks, full/lite builds, unloading
+js/clip.js              Polygon and polyline clipping to chunk rectangles
+js/world.js             Chunk indexes and world queries: collision, curbs, streets, locations
+js/streets.js           Ground, areas, roads, markings, crosswalks, sidewalks, furniture spots
+js/buildings.js         Building styles, heights, facades, roofs
+js/props.js             Trees, lamps, benches, bike racks, hydrants, parked cars (instanced)
+js/labels.js            Place labels: floating tags, 3D signs, street signs, info-card lookup
+js/minimap.js           Rotating minimap from per-chunk canvases
+js/character.js         Procedural stylized character and its animation
+js/player.js            Movement, collision response, third-person camera
+js/util.js              Geometry helpers, spatial hash, mesh builder, time slicing
+data/detail/            Pre-built detailed tiles (downtown Davis)
+server.py               Static file server (Python standard library only)
+tools/build_detail.py   Build detailed tiles from OpenStreetMap (Overpass API)
+tools/screenshot.py     Headless screenshots for checking visual changes
+docs/                   Architecture, data formats, roadmap, images
 ```
 
-## Changing the area
+## Adding a detailed area
 
-For now the game loads one area at a time, defined by `WORLD` in `server.py`: an `origin` (the
-0,0 point of the local coordinate system), a walkable `core` bounding box and a larger,
-low-detail `context` box. Any place OpenStreetMap covers works: change those values, restart
-the server, and it downloads the new area. The spawn point is chosen in `findSpawn()` in
-`js/main.js` (C Street & 3rd Street in Davis) and falls back to the origin elsewhere.
+Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
+`DETAIL_TILES` in that file, run `python3 tools/build_detail.py`, and commit the generated
+`data/detail/` files. Everywhere else uses the vector tiles automatically.
 
 ## Contributing
 
@@ -116,7 +123,10 @@ the server, and it downloads the new area. The spawn point is chosen in `findSpa
 
 ## Credits and license
 
-- Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available
-  under the Open Database License. The in-game credit line must stay visible.
-- Rendering by [three.js](https://threejs.org) (MIT), loaded from unpkg.
+- Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL).
+  Vector tiles by [OpenFreeMap](https://openfreemap.org) using the
+  [OpenMapTiles](https://openmaptiles.org) schema. Search by [Nominatim](https://nominatim.org).
+  The in-game credit lines must stay visible.
+- Rendering by [three.js](https://threejs.org) (MIT) and [MapLibre GL JS](https://maplibre.org)
+  (BSD), loaded from unpkg.
 - Code is released under the [MIT License](LICENSE).
