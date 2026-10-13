@@ -63,6 +63,7 @@ export class Character {
     this.phase = 0;
     this.walk = 0;
     this.run = 0;
+    this.sprint = 0;
     this.air = 0;
     this.t = 0;
   }
@@ -72,14 +73,15 @@ export class Character {
     this.t += dt;
     this.walk = damp(this.walk, clamp(speed / 1.8, 0, 1), 10, dt);
     this.run = damp(this.run, clamp((speed - 2.6) / 2.6, 0, 1), 8, dt);
+    this.sprint = damp(this.sprint, clamp((speed - 6) / 2.6, 0, 1), 6, dt);
     this.air = damp(this.air, airborne ? 1 : 0, 14, dt);
 
-    const stride = lerp(1.35, 2.4, this.run);
+    const stride = lerp(1.35, 2.4, this.run) + 1.5 * this.sprint;
     this.phase += (speed * dt / stride) * Math.PI * 2;
     const p = this.phase;
-    const legAmp = this.walk * lerp(0.48, 0.85, this.run);
-    const kneeAmp = this.walk * lerp(0.65, 1.45, this.run);
-    const armAmp = this.walk * lerp(0.4, 0.95, this.run);
+    const legAmp = this.walk * lerp(0.48, 0.85, this.run) * (1 + 0.25 * this.sprint);
+    const kneeAmp = this.walk * lerp(0.65, 1.45, this.run) * (1 + 0.3 * this.sprint);
+    const armAmp = this.walk * lerp(0.4, 0.95, this.run) * (1 + 0.3 * this.sprint);
     const elbow = lerp(0.18, 1.25, this.run) * this.walk + 0.12;
 
     const ground = 1 - this.air;
@@ -99,7 +101,7 @@ export class Character {
 
     const bob = lerp(0.025, 0.07, this.run) * this.walk;
     this.body.position.y = (Math.abs(Math.cos(p)) - 0.5) * 2 * bob * ground;
-    this.body.rotation.x = -0.16 * this.run * ground;
+    this.body.rotation.x = (-0.16 * this.run - 0.12 * this.sprint) * ground;
     this.hips.rotation.y = Math.sin(p) * 0.08 * this.walk * ground;
     this.head.rotation.y = -this.hips.rotation.y;
   }

@@ -112,6 +112,34 @@
   #globe-back { background: rgba(255,255,255,0.95); color: #22272e; }
 
   @media (max-width: 720px) { #help { display: none; } #card { max-width: calc(100vw - 32px); } #where { max-width: calc(100vw - 28px); top: 56px; } }
+
+  /* Touch controls (body.touch, see js/touch.js) */
+  #world canvas { touch-action: none; }
+  #touch-ui { display: none; }
+  body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  body.touch #touch-ui { display: block; }
+  body.touch #help, body.touch #labelmode .k, body.touch #to-globe kbd { display: none; }
+  #stick { position: absolute; left: 0; top: 0; width: 112px; height: 112px; margin: -56px 0 0 -56px; z-index: 6;
+    border-radius: 50%; background: rgba(18, 22, 28, 0.25); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.6);
+    opacity: 0.4; pointer-events: none; transition: opacity .15s; }
+  #stick.active { opacity: 1; }
+  #stick-knob { position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px; border-radius: 50%;
+    background: rgba(255,255,255,0.92); box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+  .tbtn { position: absolute; z-index: 6; border: 0; border-radius: 50%; background: var(--panel); color: var(--text);
+    font: 600 13px system-ui; backdrop-filter: blur(6px); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.35);
+    touch-action: none; -webkit-tap-highlight-color: transparent; }
+  .tbtn:active { background: rgba(255,255,255,0.3); }
+  #btn-jump { right: 22px; bottom: 58px; width: 74px; height: 74px; }
+  #btn-sprint { right: 110px; bottom: 48px; width: 62px; height: 62px; }
+  #btn-sprint.on { background: var(--accent); color: #fff; }
+  body.touch #minimap { width: 108px; height: 108px; top: 100px; bottom: auto; right: 12px; }
+  body.touch #card { left: 12px; top: 100px; bottom: auto; transform: translateY(-8px); min-width: 0;
+    max-width: calc(100vw - 150px); padding: 9px 12px; }
+  body.touch #card.show { transform: none; }
+  body.touch #card .name { font-size: 16px; }
+  body.touch #attrib { left: 0; right: 0; margin: 0 auto; width: fit-content; bottom: 4px; font-size: 9.5px;
+    max-width: calc(100vw - 24px); text-align: center; }
+  @media (min-width: 721px) { body.touch #minimap, body.touch #card { top: 58px; } }
 </style>
 </head>
 <body data-mode="boot">
@@ -124,12 +152,17 @@
   <button data-mode="tags">Tags</button><button data-mode="signs">Signs</button><button data-mode="off">Off</button>
 </div>
 <div id="help" class="street-ui">
-  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> run &nbsp; <kbd>Space</kbd> jump<br>
+  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> run (tap twice: sprint) &nbsp; <kbd>Space</kbd> jump<br>
   Mouse look &nbsp; wheel zoom &nbsp; <kbd>M</kbd> map &nbsp; <kbd>G</kbd> globe &nbsp; <kbd>Esc</kbd> pause
 </div>
 <canvas id="minimap" class="street-ui" width="340" height="340"></canvas>
 <div id="attrib" class="street-ui">© <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> Data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Elevation <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Terrain Tiles</a></div>
 <div id="card" class="street-ui"></div>
+<div id="touch-ui" class="street-ui">
+  <div id="stick"><div id="stick-knob"></div></div>
+  <button id="btn-sprint" class="tbtn">Sprint</button>
+  <button id="btn-jump" class="tbtn">Jump</button>
+</div>
 <div id="flash"></div>
 
 <div id="intro" class="hidden street-ui">
@@ -139,6 +172,7 @@
     <div class="controls">
       <span>Move</span><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span>
       <span>Run / jump</span><span><kbd>Shift</kbd> / <kbd>Space</kbd></span>
+      <span>Sprint</span><span>Tap <kbd>Shift</kbd> twice and hold</span>
       <span>Look</span><span>Mouse (or <kbd>Q</kbd> <kbd>E</kbd>)</span>
       <span>Labels</span><span><kbd>L</kbd> — tags, signs, or off</span>
       <span>Map</span><span><kbd>M</kbd> — pick a spot nearby</span>

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { clamp, damp, angleDelta } from './util.js';
+import { clamp, damp, lerp, angleDelta } from './util.js';
 
-const WALK = 2.2;
-const RUN = 5.6;
+export const WALK = 2.2;
+export const RUN = 5.6;
+export const SPRINT = 9;
 const JUMP_V = 5.2;
 const GRAVITY = 16;
 const RADIUS = 0.32;
@@ -49,7 +50,9 @@ export class Player {
     let wx = fx * input.fwd + rx * input.right, wz = fz * input.fwd + rz * input.right;
     const wl = Math.hypot(wx, wz);
     if (wl > 1) { wx /= wl; wz /= wl; }
-    const target = input.run ? RUN : WALK;
+    // gait: 0 walk, 1 run, 2 sprint (fractions blend; the touch joystick uses them).
+    const gait = clamp(input.gait || 0, 0, 2);
+    const target = gait <= 1 ? lerp(WALK, RUN, gait) : lerp(RUN, SPRINT, gait - 1);
     const accel = this.onGround ? 11 : 2.5;
     this.vel.x = damp(this.vel.x, wx * target, accel, dt);
     this.vel.z = damp(this.vel.z, wz * target, accel, dt);

@@ -73,7 +73,8 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/props.js` | Shared, instanced trees, lamps, benches, bike racks, hydrants, bins, parked cars |
 | `js/labels.js` | Per-chunk place items, sign placement, street-sign corners, floating tags, lazy 3D signs |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
-| `js/character.js`, `js/player.js` | Character model/animation; movement, curbs, collision, camera |
+| `js/character.js`, `js/player.js` | Character model/animation; movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
+| `js/touch.js` | `TouchControls`: floating joystick (left half), look (right half), pinch zoom, Jump/Sprint buttons; adds `body.touch` |
 | `js/util.js` | Polygon helpers, `resample`, `offsetPolyline`, `SpatialHash`, `GeoBuilder` (with world-space UVs), `MultiBuilder`, `Budget` |
 | `tools/build_detail.py` | Overpass → `data/detail/<z>/<x>/<y>.json` for tiles in `DETAIL_TILES` |
 | `tools/fetch_textures.py` | Downloads the CC0 textures into `assets/textures/` and writes `CREDITS.md` |
@@ -177,6 +178,9 @@ in detail data.
 - Nominatim allows about one request per second; search only runs on submit and reverse
   geocoding once per walk-in.
 - Pointer lock may be refused; the game then falls back to click-and-drag to look.
+- Touch controls switch on with the first touch (or at load on a coarse-pointer device) and
+  skip the click-to-play panel. Test them with Playwright's `has_touch`/`is_mobile` context and
+  CDP `Input.dispatchTouchEvent`; `body.touch` CSS moves the minimap, card and credits.
 - The site deploys to Vercel as static files (`vercel.json`). Don't add Python files named
   `app.py`, `index.py`, `server.py`, `main.py`, `wsgi.py` or `asgi.py` at the root or in `src/`,
   `app/` or `api/`: Vercel treats them as a Python web app and the deploy fails. That is why the

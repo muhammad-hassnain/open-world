@@ -5,34 +5,40 @@ import { makeMaterials } from './materials.js';
 import { GROUND_COLOR } from './streets.js';
 import { ChunkManager } from './chunks.js';
 import { Character } from './character.js';
-import { Player } from './player.js';
+import { Player, RUN, SPRINT } from './player.js';
 import { Labels, CATS, escapeHtml } from './labels.js';
 import { MiniMap } from './minimap.js';
 import { Terrain } from './terrain.js';
+import { TouchControls } from './touch.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const TEST = params.has('test');
 const MOUSE_SENS = 0.0024;
+const FOV = 62;
+// Phones and tablets: lighter rendering (their GPUs and batteries are smaller).
+const MOBILE = matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0;
 // Default start: C Street by Central Park, downtown Davis, CA.
 const START = { lat: 38.54428, lon: -121.7438, bearing: 0 };
 
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, MOBILE ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 $('world').appendChild(renderer.domElement);
+const touch = new TouchControls(renderer.domElement, { stick: $('stick'), knob: $('stick-knob'), jump: $('btn-jump'), sprint: $('btn-sprint') });
+if (MOBILE) touch.enable();
 
 const HORIZON = new THREE.Color('#dce8f2');
 const scene = new THREE.Scene();
 scene.background = HORIZON;
 scene.fog = new THREE.Fog(HORIZON, 120, 620);
-const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 2000);
+const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 2000);
 
 // Gradient sky; tone-mapped like the rest of the scene so it matches the fog at the horizon.
 function skyMaterial(top, horizon, ground) {
@@ -77,7 +83,7 @@ scene.add(new THREE.HemisphereLight('#e2efff', '#8e9a72', 0.7));
 const sun = new THREE.DirectionalLight('#fff0d8', 3.0);
 const SUN_DIR = new THREE.Vector3(-0.5, 0.78, 0.38).normalize();
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.setScalar(MOBILE ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 400 });
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.04;
@@ -104,7 +110,7 @@ let globe = null;
 function setMode(m) {
   mode = m;
   document.body.dataset.mode = m;
-  if (m !== 'street') { if (labels) labels.hideAll(); setOverlay(false); }
+  if (m !== 'street') { if (labels) labels.hideAll(); setOverlay(false); touch.reset(); }
 }
 
 function getGlobe() {
@@ -193,7 +199,7 @@ async function enterStreet(lat, lon, bearing = 0) {
   character.root.visible = true;
   placeName(lat, lon).then((n) => { if (token === session) world.placeName = n; }).catch(() => {});
   setMode('street');
-  if (TEST) playing = true; else setOverlay(true);
+  if (TEST || touch.enabled) playing = true; else setOverlay(true);
   window.game.ready = true;
 }
 
@@ -274,6 +280,7 @@ $('search').addEventListener('submit', async (e) => {
 const keys = new Set();
 let mouseDX = 0, mouseDY = 0, zoomAcc = 0, jumpQueued = false;
 let locked = false, dragLook = false, dragging = false, playing = false;
+let shiftUp = 0, sprintKey = false;  // press Shift again right after letting go (and hold) to sprint
 
 function setOverlay(show) { $('intro').classList.toggle('hidden', !show); }
 
@@ -298,8 +305,9 @@ document.addEventListener('mousemove', (e) => {
 renderer.domElement.addEventListener('mousedown', () => { if (dragLook) dragging = true; else if (mode === 'street' && !locked) startPlaying(); });
 window.addEventListener('mouseup', () => { dragging = false; });
 renderer.domElement.addEventListener('wheel', (e) => { zoomAcc += e.deltaY * 0.004; }, { passive: true });
-window.addEventListener('blur', () => keys.clear());
+window.addEventListener('blur', () => { keys.clear(); sprintKey = false; });
 $('play').addEventListener('click', startPlaying);
+touch.onEnable = () => { if (mode === 'street') { playing = true; setOverlay(false); } };
 $('to-globe').addEventListener('click', () => openGlobe('globe'));
 
 const actions = {};
@@ -314,11 +322,18 @@ window.addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (!e.repeat) {
     if (e.code === 'Space') jumpQueued = true;
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') sprintKey = performance.now() - shiftUp < 300;
     if (actions[e.code]) actions[e.code]();
   }
   keys.add(e.code);
 });
-window.addEventListener('keyup', (e) => keys.delete(e.code));
+window.addEventListener('keyup', (e) => {
+  keys.delete(e.code);
+  if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !keys.has('ShiftLeft') && !keys.has('ShiftRight')) {
+    sprintKey = false;
+    shiftUp = performance.now();
+  }
+});
 
 // ---------- HUD ----------
 function setLabelButtons(m) {
@@ -359,19 +374,27 @@ function loop(now) {
   if (mode === 'street' && player) {
     const k = (...c) => c.some((x) => keys.has(x));
     const active = playing;
+    const tc = touch.read();
+    const shift = k('ShiftLeft', 'ShiftRight') ? (sprintKey ? 2 : 1) : 0;
     const input = {
-      fwd: active ? (k('KeyW', 'ArrowUp') ? 1 : 0) - (k('KeyS', 'ArrowDown') ? 1 : 0) : 0,
-      right: active ? (k('KeyD', 'ArrowRight') ? 1 : 0) - (k('KeyA', 'ArrowLeft') ? 1 : 0) : 0,
-      run: k('ShiftLeft', 'ShiftRight'),
-      jump: active && jumpQueued,
-      lookX: mouseDX * MOUSE_SENS + (active ? ((k('KeyE') ? 1 : 0) - (k('KeyQ') ? 1 : 0)) * 2.2 * dt : 0),
-      lookY: mouseDY * MOUSE_SENS,
-      zoom: zoomAcc,
+      fwd: active ? (k('KeyW', 'ArrowUp') ? 1 : 0) - (k('KeyS', 'ArrowDown') ? 1 : 0) + tc.fwd : 0,
+      right: active ? (k('KeyD', 'ArrowRight') ? 1 : 0) - (k('KeyA', 'ArrowLeft') ? 1 : 0) + tc.right : 0,
+      gait: Math.max(shift, tc.gait),
+      jump: active && (jumpQueued || tc.jump),
+      lookX: mouseDX * MOUSE_SENS + tc.lookX + (active ? ((k('KeyE') ? 1 : 0) - (k('KeyQ') ? 1 : 0)) * 2.2 * dt : 0),
+      lookY: mouseDY * MOUSE_SENS + tc.lookY,
+      zoom: zoomAcc + tc.zoom,
     };
     mouseDX = 0; mouseDY = 0; zoomAcc = 0; jumpQueued = false;
 
     player.update(dt, input);
     const p = player.pos;
+    // Widen the view a little when sprinting.
+    const fov = FOV + 7 * Math.min(1, Math.max(0, (player.speed - RUN) / (SPRINT - RUN)));
+    if (Math.abs(camera.fov - fov) > 0.05) {
+      camera.fov += (fov - camera.fov) * (1 - Math.exp(-4 * dt));
+      camera.updateProjectionMatrix();
+    }
     chunks.update(p.x, p.z);
     sun.target.position.set(p.x, p.y, p.z);
     sun.position.copy(sun.target.position).addScaledVector(SUN_DIR, 150);

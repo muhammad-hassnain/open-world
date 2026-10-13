@@ -155,9 +155,14 @@ grid. Main queries:
 
 ## Player, camera and HUD
 
-- Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, jump), collision via
+- Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, sprint 9 m/s, jump), collision via
   `resolveCircle`, slopes and curbs via `groundAt`, no world bounds (chunks stream ahead of you).
-- Third-person camera with shoulder offset; it pulls in before any wall between head and camera.
+- Third-person camera with shoulder offset; it pulls in before any wall between head and camera,
+  and widens a little when sprinting.
+- Input: keyboard and mouse (pointer lock, or click-and-drag), or touch (`touch.js`): a joystick
+  that appears under the left thumb, whose deflection blends walk into run, drag-to-look and
+  pinch-to-zoom on the right, and Jump/Sprint buttons. Phones also render at a lower pixel ratio
+  with a smaller shadow map.
 - Spawn (`findSpawn`): nearest street to the chosen point → its sidewalk, else the street edge,
   else open ground; facing along the street in the direction closest to the map's bearing.
 - HUD: location bar, label mode, info card for the nearest place, rotating minimap, fps,

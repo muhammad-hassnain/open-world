@@ -19,7 +19,7 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 - **The whole world.** A 3D globe with place search; zoom in to any street and press
   **Walk here**. Press `G` to fly back out. The world streams in around you as you walk.
-- **Third-person character** with walk, run and jump animations, an over-the-shoulder camera
+- **Third-person character** with walk, run, sprint and jump animations, an over-the-shoulder camera
   that avoids walls, and collision with buildings, trees, lamps and parked cars.
 - **Real terrain**: streets, buildings and parks follow the ground, so San Francisco's hills
   climb and Montmartre rises to Sacré-Cœur. Elevation comes from open terrain tiles covering
@@ -65,6 +65,7 @@ the address bar keeps your current position so you can share it.
 | --- | --- |
 | Move | `W` `A` `S` `D` or arrow keys |
 | Run / jump | `Shift` / `Space` |
+| Sprint | Tap `Shift` twice and hold |
 | Look | Mouse (or `Q` / `E`); if the mouse can't be captured, click and drag |
 | Zoom camera | Mouse wheel |
 | Labels: tags → signs → off | `L` |
@@ -72,6 +73,10 @@ the address bar keeps your current position so you can share it.
 | Fly out to the globe | `G` |
 | Respawn where you walked in | `R` |
 | Pause / release mouse | `Esc` |
+
+On phones and tablets: put your thumb anywhere on the left half of the screen for a joystick
+(push further to run), drag on the right half to look, pinch to zoom, and use the **Jump** and
+**Sprint** buttons.
 
 ## How it works
 
@@ -111,6 +116,7 @@ js/labels.js            Place labels: floating tags, 3D signs, street signs, inf
 js/minimap.js           Rotating minimap from per-chunk canvases
 js/character.js         Procedural stylized character and its animation
 js/player.js            Movement, collision response, third-person camera
+js/touch.js             Touch controls: floating joystick, look, pinch zoom, Jump/Sprint buttons
 js/util.js              Geometry helpers, spatial hash, mesh builder, time slicing
 data/detail/            Pre-built detailed tiles (downtown Davis)
 assets/textures/        CC0 material textures (see CREDITS.md there)
