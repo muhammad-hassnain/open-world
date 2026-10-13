@@ -10,6 +10,7 @@ import { Labels, CATS, escapeHtml } from './labels.js';
 import { MiniMap } from './minimap.js';
 import { Terrain } from './terrain.js';
 import { TouchControls } from './touch.js';
+import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
 
 const $ = (id) => document.getElementById(id);
@@ -31,7 +32,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 $('world').appendChild(renderer.domElement);
-const touch = new TouchControls(renderer.domElement, { stick: $('stick'), knob: $('stick-knob'), jump: $('btn-jump'), sprint: $('btn-sprint') });
+const touch = new TouchControls(renderer.domElement, { stick: $('stick'), knob: $('stick-knob'), jump: $('btn-jump') });
 if (MOBILE) touch.enable();
 
 const HORIZON = new THREE.Color('#dce8f2');
@@ -110,7 +111,7 @@ let globe = null;
 function setMode(m) {
   mode = m;
   document.body.dataset.mode = m;
-  if (m !== 'street') { if (labels) labels.hideAll(); setOverlay(false); touch.reset(); }
+  if (m !== 'street') { if (labels) labels.hideAll(); setOverlay(false); touch.reset(); closePhotos(); }
 }
 
 function getGlobe() {
@@ -313,12 +314,20 @@ $('to-globe').addEventListener('click', () => openGlobe('globe'));
 const actions = {};
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
+  if (aboutOpen()) { if (e.code === 'Escape') closeAbout(); return; }
   if (mode === 'globe') {
     if (e.code === 'Escape' && player) backToStreet();
     if ((e.code === 'KeyM' || e.code === 'KeyG') && player && !e.repeat) backToStreet();
     return;
   }
   if (mode !== 'street') return;
+  if (photoView) {
+    if (e.code === 'Escape' || e.code === 'KeyP') closePhotos();
+    else if (e.code === 'ArrowRight' || e.code === 'KeyD') showPhoto(photoView.i + 1);
+    else if (e.code === 'ArrowLeft' || e.code === 'KeyA') showPhoto(photoView.i - 1);
+    e.preventDefault();
+    return;
+  }
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (!e.repeat) {
     if (e.code === 'Space') jumpQueued = true;
@@ -355,12 +364,82 @@ function renderCard(it) {
   return `<div class="cat" style="color:${cat.color}">${escapeHtml(it.kind || cat.label)}</div><div class="name">${escapeHtml(it.name)}</div>${rows.join('')}`;
 }
 
+// Photos of the place on the card (Wikimedia), shown on the card and in the photo viewer.
+let cardPhotos = null, photoView = null;
+
+function loadCardPhotos(it) {
+  if (!it.name) return;
+  const q = it.poi && Number.isFinite(it.poi.x) ? it.poi : it;
+  const [lat, lon] = frame.toLatLon(q.x, q.z);
+  placePhotos(it.name, lat, lon).then((r) => {
+    if (cardId !== it.id || !r.photos.length) return;
+    cardPhotos = { name: it.name, ...r };
+    const ph = r.photos[0], n = r.photos.length;
+    $('card').insertAdjacentHTML('beforeend', `<img class="photo" src="${escapeHtml(ph.thumb)}" alt="">`
+      + `<div class="credit">Photo: ${escapeHtml(ph.author)} · ${escapeHtml(ph.license)} · Wikimedia Commons</div>`
+      + `<div class="hint">${touch.enabled ? 'Tap' : '<kbd>P</kbd>'} to see ${n > 1 ? `${n} photos` : 'the photo'}</div>`);
+    $('card').classList.add('has-photos');
+  });
+}
+
+function openPhotos() {
+  if (!cardPhotos) { flash('No photos of this place'); return; }
+  if (locked) document.exitPointerLock();
+  keys.clear();
+  touch.reset();
+  photoView = { ...cardPhotos, i: 0 };
+  showPhoto(0);
+  $('photos').classList.remove('hidden');
+}
+
+function showPhoto(i) {
+  const v = photoView, n = v.photos.length;
+  v.i = (i + n) % n;
+  const ph = v.photos[v.i];
+  const img = $('ph-img');
+  img.onerror = () => { img.onerror = null; img.src = ph.thumb; };  // originals smaller than 1280 px
+  img.src = ph.large;
+  $('ph-title').textContent = v.name;
+  $('ph-count').textContent = n > 1 ? `${v.i + 1} / ${n}` : '';
+  const link = (url, label) => (url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>` : escapeHtml(label));
+  $('ph-credit').innerHTML = `${link(ph.page, ph.title)} · ${escapeHtml(ph.author)} · ${link(ph.licenseUrl, ph.license)} · Wikimedia Commons`
+    + (v.more ? ` · ${link(v.more, 'More photos')}` : '');
+  for (const b of [$('ph-prev'), $('ph-next')]) b.classList.toggle('hidden', n < 2);
+}
+
+function closePhotos() {
+  if (!photoView) return;
+  photoView = null;
+  $('photos').classList.add('hidden');
+  $('ph-img').removeAttribute('src');
+}
+
+$('card').addEventListener('click', openPhotos);
+
+// ---------- about ----------
+const aboutOpen = () => !$('about').classList.contains('hidden');
+function openAbout() {
+  if (locked) document.exitPointerLock();
+  keys.clear();
+  touch.reset();
+  $('about').classList.remove('hidden');
+}
+function closeAbout() { $('about').classList.add('hidden'); }
+$('about-btn').addEventListener('click', openAbout);
+$('globe-about').addEventListener('click', openAbout);
+$('about-close').addEventListener('click', closeAbout);
+$('about').addEventListener('click', (e) => { if (e.target === $('about')) closeAbout(); });
+$('ph-close').addEventListener('click', closePhotos);
+$('ph-prev').addEventListener('click', () => showPhoto(photoView.i - 1));
+$('ph-next').addEventListener('click', () => showPhoto(photoView.i + 1));
+
 let flashT = 0;
 function flash(text) { $('flash').textContent = text; $('flash').classList.add('show'); flashT = 1.6; }
 
 actions.KeyL = () => { if (labels) { labels.cycle(); flash(`Labels: ${labels.mode}`); } };
 actions.KeyR = () => { if (player && spawn) { player.spawn(spawn.x, spawn.z, spawn.yaw); flash('Back to where you started'); } };
 actions.KeyM = () => openGlobe('map');
+actions.KeyP = openPhotos;
 actions.KeyG = () => openGlobe('globe');
 
 // ---------- loop ----------
@@ -424,8 +503,15 @@ function loop(now) {
       const street = loc.street ? `<b>${escapeHtml(loc.street)}</b>${loc.cross ? ` &amp; ${escapeHtml(loc.cross)}` : ''}` : '<b>Exploring</b>';
       $('where').innerHTML = `${street}${loc.area ? `<span>${escapeHtml(loc.area)}</span>` : ''}`;
       const near = labels.nearest(p.x, p.z, 9);
-      if (near && near.id !== cardId) $('card').innerHTML = renderCard(near);
+      const changed = near && near.id !== cardId;
+      if (changed) {
+        $('card').innerHTML = renderCard(near);
+        $('card').classList.remove('has-photos');
+        cardPhotos = null;
+      }
       cardId = near ? near.id : null;
+      if (!near) cardPhotos = null;
+      if (changed) loadCardPhotos(near);
       $('card').classList.toggle('show', !!near);
     }
     miniT -= dt;
@@ -474,9 +560,30 @@ if (params.has('globe')) {
   const s = at || START;
   enterStreet(s.lat, s.lon, s.bearing);
 } else {
+  // Start on the street where the player is, if they share their location; otherwise fly to
+  // Davis. Don't jump anywhere if they've started exploring the globe while deciding.
   const g = getGlobe();
   setMode('globe');
   g.show();
   updateWalkButton();
-  g.ready.then(() => g.flyTo({ lat: START.lat, lon: START.lon, zoom: 16.8, pitch: 45, duration: 6000 }));
+  let wandered = false;
+  g.on('movestart', (e) => { if (e.originalEvent) wandered = true; });
+  $('search').addEventListener('submit', () => { wandered = true; });
+  myLocation().then((pos) => {
+    if (wandered || mode !== 'globe' || player) return;
+    if (pos) enterStreet(pos.lat, pos.lon);
+    else g.ready.then(() => g.flyTo({ lat: START.lat, lon: START.lon, zoom: 16.8, pitch: 45, duration: 6000 }));
+  });
+}
+
+// The device's position, or null if it's refused, unavailable or not allowed (browsers only
+// offer it on https and localhost).
+function myLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation || !window.isSecureContext) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10 * 60 * 1000 });
+  });
 }

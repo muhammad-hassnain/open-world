@@ -10,7 +10,13 @@ All map data comes from [OpenStreetMap](https://www.openstreetmap.org) and is
 | [OpenFreeMap](https://openfreemap.org) vector tiles, [OpenMapTiles](https://openmaptiles.org/schema/) schema | The whole planet, updated weekly | z14 `.pbf` tiles fetched by the browser | Building footprints with heights/colours, roads by class with names, landcover/landuse, water, named places, neighborhoods |
 | Detail tiles from `tools/build_detail.py` (Overpass API) | Tiles listed in `DETAIL_TILES` (downtown Davis today) | `data/detail/14/<x>/<y>.json` + `data/detail/index.json` | Everything above plus building types, mapped sidewalks/crossings, lanes/width tags, trees, benches, lamps, hydrants, addresses, opening hours, cuisine, websites |
 
-Elevation is separate from the map data; see [Elevation](#elevation).
+Elevation is separate from the map data; see [Elevation](#elevation). Place photos come live
+from [Wikimedia Commons](https://commons.wikimedia.org), matched to places through
+[Wikidata](https://www.wikidata.org); each photo keeps its own license and is shown with its
+author and license. Place photos come live
+from [Wikimedia Commons](https://commons.wikimedia.org), matched to places through
+[Wikidata](https://www.wikidata.org); each photo keeps its own license and is shown with its
+author and license.
 
 Both map sources are converted to the **common format** below, with coordinates in tile units
 (`0..extent`, y pointing south) and then to meters by `toLocal()` in `js/tiledata.js`.

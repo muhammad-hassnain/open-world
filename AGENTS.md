@@ -72,9 +72,11 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/buildings.js` | `styleOf`, `layout` (floors/heights), walls (skipping chunk seams), roofs, facades, awnings; lite mode |
 | `js/props.js` | Shared, instanced trees, lamps, benches, bike racks, hydrants, bins, parked cars |
 | `js/labels.js` | Per-chunk place items, sign placement, street-sign corners, floating tags, lazy 3D signs |
+| `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
+| `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
 | `js/character.js`, `js/player.js` | Character model/animation; movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
-| `js/touch.js` | `TouchControls`: floating joystick (left half), look (right half), pinch zoom, Jump/Sprint buttons; adds `body.touch` |
+| `js/touch.js` | `TouchControls`: floating joystick (left half; held all the way locks a sprint), look (right half), pinch zoom, Jump button; adds `body.touch` |
 | `js/util.js` | Polygon helpers, `resample`, `offsetPolyline`, `SpatialHash`, `GeoBuilder` (with world-space UVs), `MultiBuilder`, `Budget` |
 | `tools/build_detail.py` | Overpass → `data/detail/<z>/<x>/<y>.json` for tiles in `DETAIL_TILES` |
 | `tools/fetch_textures.py` | Downloads the CC0 textures into `assets/textures/` and writes `CREDITS.md` |
@@ -125,7 +127,9 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
   bump `PROCESS_VERSION` and rebuild (`python3 tools/build_detail.py --force`).
 - **Credits must stay visible:** `#attrib` (street view) and MapLibre's attribution (globe)
   are license requirements for OpenStreetMap/OpenMapTiles/OpenFreeMap data and the elevation
-  sources (Terrain Tiles link); keep the Nominatim credit under the search box.
+  sources (Terrain Tiles link); keep the Nominatim credit under the search box. Photos always show
+  their author and license. The About panel (`#about`) lists every data source; update it when
+  you add one.
 - **Commits and PRs:** short descriptive messages about the change. Do not add co-author
   trailers, "generated with" lines, or any tool attribution.
 
@@ -175,6 +179,16 @@ in detail data.
   about 40% more triangles because the ground is subdivided to 5 m; flat chunks use 40 m.
 - Roof colors need the USGS imagery export (US only); it adds a few seconds to the first load of
   each tile and has a 10 s timeout, after which roofs keep generated colors.
+- Place photos use the regular MediaWiki APIs (Wikidata `list=search` with `nearcoord:` and
+  `haswbstatement:P18`, then `wbgetentities`, then Commons `imageinfo`), not the Wikidata Query
+  Service, which rate-limits hard. Every photo shown must carry its author and license.
+- The start-at-your-location prompt (geolocation) only exists on https and localhost, so it
+  never appears over a plain-http Tailscale address.
+- Place photos use the regular MediaWiki APIs (Wikidata `list=search` with `nearcoord:` and
+  `haswbstatement:P18`, then `wbgetentities`, then Commons `imageinfo`), not the Wikidata Query
+  Service, which rate-limits hard.
+- The start-at-your-location prompt (geolocation) only exists on https and localhost, so it
+  never appears over a plain-http Tailscale address.
 - Nominatim allows about one request per second; search only runs on submit and reverse
   geocoding once per walk-in.
 - Pointer lock may be refused; the game then falls back to click-and-drag to look.

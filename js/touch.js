@@ -1,6 +1,7 @@
 // Touch controls for phones and tablets: a floating joystick that appears under the thumb on the
-// left half of the screen, drag on the right half to look, pinch to zoom the camera, and Jump /
-// Sprint buttons. Turned on by the first touch, so touch-screen laptops get them too.
+// left half of the screen (hold it pushed all the way to lock into a sprint), drag on the right
+// half to look, pinch to zoom the camera, and a Jump button. Turned on by the first touch, so
+// touch-screen laptops get them too.
 import { clamp } from './util.js';
 
 const STICK_R = 52;        // px the knob can travel from the stick's center
@@ -8,20 +9,22 @@ const DEAD = 0.12;         // stick fraction ignored around the center
 const WALK_ZONE = 0.55;    // up to here the stick sets walking speed; beyond it blends into a run
 const LOOK_SENS = 0.006;   // radians per px dragged
 const PINCH_SENS = 0.03;   // camera meters per px of pinch
+const FULL = 0.9;          // stick fraction that counts as pushed all the way
+const SPRINT_HOLD = 900;   // ms pushed all the way before the sprint locks in
+const SPRINT_KEEP = 0.5;   // a locked sprint lasts until the stick eases back below this
 
 export class TouchControls {
   // surface: element that receives look/stick touches (the canvas).
-  // ui: { stick, knob, jump, sprint } elements.
+  // ui: { stick, knob, jump } elements.
   constructor(surface, ui) {
     this.ui = ui;
     this.enabled = false;
     this.onEnable = null;
-    this.stick = null;          // { id, ox, oy, dx, dy } in px / unit stick deflection
+    this.stick = null;          // { id, ox, oy, dx, dy, fullSince, sprint }
     this.looks = new Map();     // pointerId -> { x, y }
     this.pinch = 0;             // last distance between two look touches
     this.lookX = 0; this.lookY = 0; this.zoom = 0;
     this.jump = false;
-    this.sprint = false;
 
     surface.addEventListener('pointerdown', (e) => this._down(e, surface));
     surface.addEventListener('pointermove', (e) => this._move(e));
@@ -31,7 +34,6 @@ export class TouchControls {
     window.addEventListener('resize', () => this._drawStick());
     const press = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); fn(); });
     press(ui.jump, () => { this.jump = true; });
-    press(ui.sprint, () => this.setSprint(!this.sprint));
   }
 
   enable() {
@@ -42,11 +44,6 @@ export class TouchControls {
     if (this.onEnable) this.onEnable();
   }
 
-  setSprint(on) {
-    this.sprint = on;
-    this.ui.sprint.classList.toggle('on', on);
-  }
-
   // Input for this frame; look, zoom and jump are consumed.
   read() {
     const out = { fwd: 0, right: 0, gait: 0, lookX: this.lookX, lookY: this.lookY, zoom: this.zoom, jump: this.jump };
@@ -54,11 +51,16 @@ export class TouchControls {
     const s = this.stick;
     if (s) {
       const m = Math.min(1, Math.hypot(s.dx, s.dy));
+      // Held all the way for a moment: lock into a sprint until the stick eases back.
+      const now = performance.now();
+      if (m < FULL) s.fullSince = 0; else if (!s.fullSince) s.fullSince = now;
+      const sprint = m >= SPRINT_KEEP && (s.sprint || (s.fullSince > 0 && now - s.fullSince > SPRINT_HOLD));
+      if (sprint !== s.sprint) { s.sprint = sprint; this.ui.stick.classList.toggle('sprint', sprint); }
       if (m > DEAD) {
         const k = Math.min(1, m / WALK_ZONE) / m;
         out.right = s.dx * k;
         out.fwd = -s.dy * k;
-        out.gait = this.sprint ? 2 : clamp((m - WALK_ZONE) / (0.9 - WALK_ZONE), 0, 1);
+        out.gait = s.sprint ? 2 : clamp((m - WALK_ZONE) / (FULL - WALK_ZONE), 0, 1);
       }
     }
     return out;
@@ -68,7 +70,6 @@ export class TouchControls {
   reset() {
     this.stick = null;
     this.looks.clear();
-    this.setSprint(false);
     this._drawStick();
   }
 
@@ -78,7 +79,7 @@ export class TouchControls {
     e.preventDefault();  // no emulated mouse events (they would start pointer lock)
     surface.setPointerCapture(e.pointerId);
     if (e.clientX < window.innerWidth / 2 && !this.stick) {
-      this.stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0 };
+      this.stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0, fullSince: 0, sprint: false };
       this._drawStick();
     } else {
       this.looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -135,6 +136,7 @@ export class TouchControls {
     const x = s ? s.ox : 96, y = s ? s.oy : window.innerHeight - 120;
     stick.style.transform = `translate(${x}px, ${y}px)`;
     stick.classList.toggle('active', !!s);
+    if (!s) stick.classList.remove('sprint');
     knob.style.transform = s ? `translate(${s.dx * STICK_R}px, ${s.dy * STICK_R}px)` : '';
   }
 }

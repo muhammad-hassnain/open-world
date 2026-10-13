@@ -21,6 +21,12 @@ Everything runs in the browser. `serve.py` serves static files; it has no data l
 - **Street world** (`main.js` → `chunks.js`): created by `enterStreet(lat, lon, bearing)`, which
   makes a new `Frame` at that point, streams chunks around the player and spawns them on the
   nearest street.
+- **Start:** a `#lat,lon` link or `?at=` walks straight in. Otherwise the globe opens and the
+  browser asks for the device's location; if it's shared (and the player hasn't started
+  exploring the globe meanwhile) the street world opens there, else the globe flies to Davis.
+- **Start:** a `#lat,lon` link or `?at=` walks straight in. Otherwise the globe opens and the
+  browser asks for the device's location; if it's shared (and the player hasn't started
+  exploring the globe meanwhile) the street world opens there, else the globe flies to Davis.
 
 ## Coordinates
 
@@ -153,6 +159,26 @@ grid. Main queries:
   post signs for parks and free-standing places, green street-name blades at intersections;
   floating HTML tags with occlusion and declutter; modes tags/signs/off.
 
+## Place photos (`photos.js`)
+
+When the info card shows a named place, `placePhotos` looks for its Wikidata item: a full-text
+search for the name limited to items with an image (P18) within 300 m (`nearcoord:`), then a
+check that one of the item's labels or aliases, in any language, equals the name after
+normalizing case and punctuation. Its main image and up to seven more from its Commons category
+(P373) come from the Commons `imageinfo` API with author and license. Places without a match
+(most shops and cafés) show no photo. Results are cached per place for the session. The card
+shows the first photo and its credit; `P` (or tapping the card) opens a full-screen viewer.
+
+## Place photos (`photos.js`)
+
+When the info card shows a named place, `placePhotos` looks for its Wikidata item: a full-text
+search for the name limited to items with an image (P18) within 300 m (`nearcoord:`), then a
+check that one of the item's labels or aliases, in any language, equals the name after
+normalizing case and punctuation. Its main image and up to seven more from its Commons category
+(P373) come from the Commons `imageinfo` API with author and license. Places without a match
+(most shops and cafés) show no photo. Results are cached per place for the session. The card
+shows the first photo and its credit; `P` (or tapping the card) opens a full-screen viewer.
+
 ## Player, camera and HUD
 
 - Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, sprint 9 m/s, jump), collision via
@@ -160,13 +186,14 @@ grid. Main queries:
 - Third-person camera with shoulder offset; it pulls in before any wall between head and camera,
   and widens a little when sprinting.
 - Input: keyboard and mouse (pointer lock, or click-and-drag), or touch (`touch.js`): a joystick
-  that appears under the left thumb, whose deflection blends walk into run, drag-to-look and
-  pinch-to-zoom on the right, and Jump/Sprint buttons. Phones also render at a lower pixel ratio
+  that appears under the left thumb, whose deflection blends walk into run and which locks into a
+  sprint when held all the way for a moment; drag-to-look and pinch-to-zoom on the right; a Jump
+  button. Phones also render at a lower pixel ratio
   with a smaller shadow map.
 - Spawn (`findSpawn`): nearest street to the chosen point → its sidewalk, else the street edge,
   else open ground; facing along the street in the direction closest to the map's bearing.
-- HUD: location bar, label mode, info card for the nearest place, rotating minimap, fps,
-  credits; the URL hash tracks the current position.
+- HUD: location bar, label mode, info card for the nearest place (with a photo when Wikimedia
+  has one), rotating minimap, fps, About panel (project link and all credits), credits; the URL hash tracks the current position.
 
 ## Materials
 
