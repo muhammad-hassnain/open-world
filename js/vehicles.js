@@ -17,7 +17,7 @@ const WHEEL_SCALE = 1.15;
 const SPECS = {
   car: { maxFwd: 25, maxRev: 6, accel: 7, brake: 16, coast: 2.5, hand: 12, wheelbase: 2.6, track: 1.6,
     steerLow: 0.6, steerHigh: 0.16, circles: [-1.5, 0, 1.5], r: 0.92, seat: null },
-  bike: { maxFwd: 8, maxRev: 1.5, accel: 3.5, brake: 9, coast: 1.2, hand: 8, wheelbase: 1.1, track: 0.1,
+  bike: { maxFwd: 8, maxRev: 1.5, accel: 2.2, brake: 9, coast: 1.2, hand: 8, wheelbase: 1.1, track: 0.1,
     steerLow: 0.7, steerHigh: 0.25, circles: [-0.45, 0.45], r: 0.38, seat: 0.92 },
 };
 export const VEHICLE_SPECS = SPECS;
@@ -25,18 +25,18 @@ export const VEHICLE_SPECS = SPECS;
 // How each car model drives: top speed (m/s), acceleration, steering (x the base), grip (how fast
 // the steering responds), body roll in turns (x), camera distance.
 export const CAR_MODELS = {
-  sedan: { label: 'Sedan', maxFwd: 30, accel: 7, steer: 1, grip: 6, roll: 1, cam: 7.5 },
-  'sedan-sports': { label: 'Sports sedan', maxFwd: 38, accel: 10, steer: 1.08, grip: 9, roll: 0.55, cam: 7 },
-  'hatchback-sports': { label: 'Sports hatchback', maxFwd: 40, accel: 11, steer: 1.12, grip: 10, roll: 0.45, cam: 7 },
-  suv: { label: 'SUV', maxFwd: 28, accel: 6, steer: 0.85, grip: 5, roll: 1.5, cam: 8.2 },
-  'suv-luxury': { label: 'Luxury SUV', maxFwd: 35, accel: 8.5, steer: 0.92, grip: 6.5, roll: 1, cam: 8.2 },
-  taxi: { label: 'Taxi', maxFwd: 31, accel: 7, steer: 1, grip: 6, roll: 1, cam: 7.5 },
-  van: { label: 'Van', maxFwd: 23, accel: 4.5, steer: 0.75, grip: 4, roll: 1.9, cam: 9 },
+  sedan: { label: 'Sedan', maxFwd: 30, accel: 3.6, steer: 1, grip: 6, roll: 1, cam: 7.5 },
+  'sedan-sports': { label: 'Sports sedan', maxFwd: 38, accel: 5.2, steer: 1.08, grip: 9, roll: 0.55, cam: 7 },
+  'hatchback-sports': { label: 'Sports hatchback', maxFwd: 40, accel: 5.6, steer: 1.12, grip: 10, roll: 0.45, cam: 7 },
+  suv: { label: 'SUV', maxFwd: 28, accel: 3.2, steer: 0.85, grip: 5, roll: 1.5, cam: 8.2 },
+  'suv-luxury': { label: 'Luxury SUV', maxFwd: 35, accel: 4.3, steer: 0.92, grip: 6.5, roll: 1, cam: 8.2 },
+  taxi: { label: 'Taxi', maxFwd: 31, accel: 3.6, steer: 1, grip: 6, roll: 1, cam: 7.5 },
+  van: { label: 'Van', maxFwd: 23, accel: 2.6, steer: 0.75, grip: 4, roll: 1.9, cam: 9 },
   // Police (police.js): stronger at higher heat. model: which file; tint: darken the paint.
-  police: { label: 'Police', maxFwd: 36, accel: 9, steer: 1.05, grip: 8, roll: 0.8, cam: 7.5, police: true },
-  'police-suv': { label: 'Police SUV', model: 'suv', maxFwd: 37, accel: 9.5, steer: 0.95, grip: 7, roll: 1.1, cam: 8.2,
+  police: { label: 'Police', maxFwd: 36, accel: 4.8, steer: 1.05, grip: 8, roll: 0.8, cam: 7.5, police: true },
+  'police-suv': { label: 'Police SUV', model: 'suv', maxFwd: 37, accel: 4.8, steer: 0.95, grip: 7, roll: 1.1, cam: 8.2,
     police: true, tint: [0.3, 0.34, 0.5] },
-  interceptor: { label: 'Interceptor', model: 'sedan-sports', maxFwd: 46, accel: 13, steer: 1.12, grip: 11, roll: 0.4, cam: 7,
+  interceptor: { label: 'Interceptor', model: 'sedan-sports', maxFwd: 46, accel: 6.8, steer: 1.12, grip: 11, roll: 0.4, cam: 7,
     police: true, tint: [0.26, 0.26, 0.29] },
 };
 
@@ -299,7 +299,9 @@ export class Vehicle {
     const thr = clamp(ctl.throttle || 0, -1, 1);
     const target = thr > 0 ? thr * P.maxFwd : thr < 0 ? thr * P.maxRev : 0;
     const opposing = (thr > 0 && this.speed < -0.3) || (thr < 0 && this.speed > 0.3);
-    const rate = opposing ? P.brake : thr !== 0 ? P.accel : P.coast;
+    // Acceleration fades toward top speed, as with a real engine.
+    const pull = thr > 0 && this.speed > 0 ? 1 - 0.65 * (this.speed / P.maxFwd) ** 2 : 1;
+    const rate = opposing ? P.brake : thr !== 0 ? P.accel * pull : P.coast;
     this.speed = approach(this.speed, opposing ? 0 : target, rate * dt);
     if (ctl.brake) this.speed = approach(this.speed, 0, P.hand * dt);
 

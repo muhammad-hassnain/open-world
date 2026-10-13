@@ -16,6 +16,7 @@ import { Vehicle, loadCars, CAR_TYPES, CAR_MODELS } from './vehicles.js';
 import { Traffic, updateLights } from './traffic.js';
 import { Police, Siren } from './police.js';
 import { Atmosphere, TIME_MODES, WEATHER_MODES } from './atmosphere.js';
+import { milesHere, speedLimit, MPH_PER_MS, KMH_PER_MS } from './limits.js';
 import { takeParkedCar } from './props.js';
 import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
@@ -174,16 +175,19 @@ async function enterStreet(lat, lon, bearing = 0) {
 
   frame = new Frame(lat, lon);
   atmo.setPlace(lat, lon);
+  milesThere = milesHere(lat, lon);
   const terrain = new Terrain(frame);
   world = new World(frame, terrain);
   if (traffic) traffic.dispose();
   traffic = new Traffic({ scene, world });
   if (police) police.dispose();
+  traffic.miles = milesThere;
   police = new Police({
     scene, world, traffic, siren, onBusted: busted,
     hud: { box: $('wanted'), stars: $('wanted').querySelector('.stars'), time: $('wanted-time'), units: $('wanted-units'),
       label: $('wanted-label'), meter: $('wanted').querySelector('.fill'), banner: $('banner'), flash },
   });
+  police.miles = milesThere;
   mp.setWorld(frame, world);
   labels = new Labels(world, scene, camera, $('tags'));
   labels.onChange = setLabelButtons;
@@ -597,13 +601,35 @@ function useVehicle() {
   player.enter(v);
 }
 
-// Bottom-of-screen hint: what F does here, or the speed while driving.
+// Speed units: the place's own (mph in the US and UK) unless the player picked one.
+let milesThere = false;
+let unitsPick = null;
+try { unitsPick = ['mph', 'kmh'].includes(localStorage.getItem('openworld.units')) ? localStorage.getItem('openworld.units') : null; } catch { /* storage unavailable */ }
+const showMiles = () => (unitsPick ? unitsPick === 'mph' : milesThere);
+function setUnits(u) {
+  unitsPick = u;
+  try { if (u) localStorage.setItem('openworld.units', u); else localStorage.removeItem('openworld.units'); } catch { /* storage unavailable */ }
+  for (const b of document.querySelectorAll('#units-mode button')) b.classList.toggle('on', (b.dataset.v || null) === (u || null) || (!u && b.dataset.v === 'auto'));
+  flash(`Speed in ${showMiles() ? 'mph' : 'km/h'}`);
+}
+for (const b of document.querySelectorAll('#units-mode button')) b.addEventListener('click', () => setUnits(b.dataset.v === 'auto' ? null : b.dataset.v));
+for (const b of document.querySelectorAll('#units-mode button')) b.classList.toggle('on', (b.dataset.v === 'auto' && !unitsPick) || b.dataset.v === unitsPick);
+
+// Bottom-of-screen hint: what F does here, or the speed and the road's limit while driving.
 function updateDriveHint() {
   const el = $('drive-hint');
   let html = '';
   if (player && player.vehicle) {
-    const kmh = Math.round(Math.abs(player.vehicle.speed) * 3.6);
-    html = `${escapeHtml(player.vehicle.spec.label)} &nbsp; <b>${kmh}</b> km/h${touch.enabled ? '' : ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> brake'}`;
+    const v = player.vehicle, miles = showMiles();
+    const speed = Math.round(Math.abs(v.speed) * (miles ? MPH_PER_MS : KMH_PER_MS));
+    const rd = world.nearestRoad(v.x, v.z, 12, (r) => r.kind === 'car' || r.kind === 'service');
+    let sign = '', over = false;
+    if (rd && v.kind === 'car') {
+      const lim = speedLimit(rd.road, milesThere);
+      over = Math.abs(v.speed) > lim.ms * 1.08;
+      sign = milesThere ? `<span class="limit us"><small>SPEED<br>LIMIT</small>${lim.value}</span>` : `<span class="limit eu">${lim.value}</span>`;
+    }
+    html = `${sign}${escapeHtml(v.spec.label)} &nbsp; <b class="${over ? 'over' : ''}">${speed}</b> ${miles ? 'mph' : 'km/h'}${touch.enabled ? '' : ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> brake'}`;
   } else if (player) {
     const r = vehicleInReach();
     if (r) {
@@ -667,6 +693,7 @@ syncAtmoButtons();
 actions.KeyT = () => setTimeMode(TIME_MODES[(TIME_MODES.indexOf(atmo.timeMode) + 1) % TIME_MODES.length]);
 actions.KeyY = () => setWeatherMode(WEATHER_MODES[(WEATHER_MODES.indexOf(atmo.weatherMode) + 1) % WEATHER_MODES.length]);
 
+actions.KeyU = () => setUnits(showMiles() ? 'kmh' : 'mph');
 actions.KeyN = () => {
   siren.on = !siren.on;
   try { localStorage.setItem('openworld.sound', siren.on ? 'on' : 'off'); } catch { /* storage unavailable */ }

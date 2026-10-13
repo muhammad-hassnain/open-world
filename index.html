@@ -258,6 +258,13 @@
     pointer-events: none; white-space: nowrap; backdrop-filter: blur(6px); }
   #drive-hint.show { opacity: 1; }
   #drive-hint b { font-size: 17px; }
+  #drive-hint b.over { color: #ff5a4f; }
+  #drive-hint { display: flex; align-items: center; gap: 4px; }
+  .limit { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; margin-right: 8px;
+    background: #fff; color: #111; font: 800 15px system-ui; line-height: 1; }
+  .limit.us { border: 2px solid #111; border-radius: 4px; padding: 2px 5px 3px; min-width: 30px; }
+  .limit.us small { font: 700 6.5px system-ui; letter-spacing: 0.02em; text-align: center; margin-bottom: 1px; }
+  .limit.eu { width: 30px; height: 30px; border-radius: 50%; border: 4px solid #d0211b; box-sizing: border-box; font-size: 12.5px; }
   body.driving #drive-hint { bottom: 78px; }
   body.driving.touch #drive-hint { bottom: auto; top: 100px; }
   body.driving #card { display: none; }
@@ -290,7 +297,7 @@
 </div>
 <div id="help" class="street-ui">
   <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> run (tap twice: sprint) &nbsp; <kbd>Space</kbd> jump<br>
-  Mouse look &nbsp; wheel zoom &nbsp; <kbd>V</kbd> car &nbsp; <kbd>B</kbd> bike &nbsp; <kbd>F</kbd> get in/out &nbsp; <kbd>P</kbd> photos &nbsp; <kbd>M</kbd> map &nbsp; <kbd>G</kbd> globe &nbsp; <kbd>O</kbd> online &nbsp; <kbd>N</kbd> sound &nbsp; <kbd>T</kbd> time &nbsp; <kbd>Y</kbd> weather &nbsp; <kbd>I</kbd> about &nbsp; <kbd>Esc</kbd> pause
+  Mouse look &nbsp; wheel zoom &nbsp; <kbd>V</kbd> car &nbsp; <kbd>B</kbd> bike &nbsp; <kbd>F</kbd> get in/out &nbsp; <kbd>P</kbd> photos &nbsp; <kbd>M</kbd> map &nbsp; <kbd>G</kbd> globe &nbsp; <kbd>O</kbd> online &nbsp; <kbd>N</kbd> sound &nbsp; <kbd>T</kbd> time &nbsp; <kbd>Y</kbd> weather &nbsp; <kbd>U</kbd> mph/km/h &nbsp; <kbd>I</kbd> about &nbsp; <kbd>Esc</kbd> pause
 </div>
 <canvas id="minimap" class="street-ui" width="340" height="340"></canvas>
 <div id="attrib" class="street-ui">© <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> Data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Elevation <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Terrain Tiles</a> · Weather <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a></div>
@@ -371,6 +378,7 @@
       · Code under the MIT License.
     </div>
     <div id="time-mode" class="modes"><span>Time <kbd>T</kbd></span><button data-v="live">Live</button><button data-v="day">Day</button><button data-v="sunset">Sunset</button><button data-v="night">Night</button></div>
+    <div id="units-mode" class="modes"><span>Speed <kbd>U</kbd></span><button data-v="auto">Local</button><button data-v="kmh">km/h</button><button data-v="mph">mph</button></div>
     <div id="weather-mode" class="modes"><span>Weather <kbd>Y</kbd></span><button data-v="live">Live</button><button data-v="clear">Clear</button><button data-v="rain">Rain</button><button data-v="snow">Snow</button><button data-v="fog">Fog</button></div>
     <button id="about-profile" class="btn">Change name and character</button>
     <div id="stick-side"><span>Joystick</span><button data-side="left">Left</button><button data-side="right">Right</button></div>

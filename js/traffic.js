@@ -8,15 +8,13 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { nodeKey, signalState } from './world.js';
 import { CAR_TYPES, carsLoaded, parkedCarMesh, parkedCarLights } from './vehicles.js';
 import { clamp, damp, angleDelta, rng } from './util.js';
+import { speedLimit } from './limits.js';
 
 const COUNT = 20;              // cars around the player
 const SPAWN_MIN = 40, SPAWN_MAX = 220, DESPAWN = 300;
 const LOOK = 40;               // meters ahead checked for junctions
 const ACCEL = 2.4, DECEL = 7;  // m/s²
 const LENGTH = 4.6;            // car length for gaps
-const SPEED = { motorway: 27, motorway_link: 15, trunk: 22, trunk_link: 13, primary: 15, primary_link: 11,
-  secondary: 14, secondary_link: 10, tertiary: 12, tertiary_link: 9 };
-const speedOf = (r) => SPEED[r.t] || 9;
 const CIRCLES = [-1.5, 0, 1.5];
 
 export class Traffic {
@@ -29,6 +27,7 @@ export class Traffic {
     this.spawnT = 0;
     this.patrols = 2;          // police cars among the traffic (police.js turns this off in a chase)
     this.lightsOn = false;     // headlights at night (atmosphere.js)
+    this.miles = false;        // limits in mph (US, UK); set by main.js
     this.lightMeshes = new Map();  // car type -> [head, tail] InstancedMeshes
     this.R = rng(12345);
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._p = new THREE.Vector3(); this._s = new THREE.Vector3(1, 1, 1);
@@ -108,8 +107,8 @@ export class Traffic {
       const dir = road.ow ? 1 : R() < 0.5 ? 1 : -1;
       const patrols = this.cars.filter((c) => c.type === 'police').length;
       const type = patrols < this.patrols ? 'police' : CAR_TYPES[Math.floor(R() * CAR_TYPES.length)];
-      const car = { type, road, k: dir > 0 ? k : k + 1, dir, s: dir > 0 ? s : len - s, speed: speedOf(road) * 0.8,
-        x, z, fx: 0, fz: -1, y: 0, pitch: 0, lane: 0, stun: 0, cruise: speedOf(road) * (0.85 + R() * 0.25) };
+      const car = { type, road, k: dir > 0 ? k : k + 1, dir, s: dir > 0 ? s : len - s, speed: this._limit(road) * 0.8,
+        x, z, fx: 0, fz: -1, y: 0, pitch: 0, lane: 0, stun: 0, cruise: this._limit(road) * (0.85 + R() * 0.2) };
       this._place(car, true);
       this.cars.push(car);
       return;
@@ -117,6 +116,9 @@ export class Traffic {
   }
 
   // ---------- driving ----------
+
+  // Speed limit of a road in m/s (traffic drives at about the limit).
+  _limit(road) { return speedLimit(road, this.miles).ms; }
 
   // Segment the car is on: from p[k] toward p[k + dir].
   _seg(c) {
@@ -233,7 +235,7 @@ export class Traffic {
     const weights = options.map((o) => (o.turn < 0.5 ? 3 : 1));
     let pick = this.R() * weights.reduce((a, b) => a + b, 0), o = options[0];
     for (let i = 0; i < options.length; i++) { pick -= weights[i]; if (pick <= 0) { o = options[i]; break; } }
-    if (o.road !== r) c.cruise = speedOf(o.road) * (0.85 + this.R() * 0.25);
+    if (o.road !== r) c.cruise = this._limit(o.road) * (0.85 + this.R() * 0.2);
     c.road = o.road; c.k = o.k; c.dir = o.d;
     return true;
   }

@@ -37,8 +37,10 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Cars and bikes**: press `V` for your car or `B` for your bike (or tap Car / Bike), `F` to
   get in, and drive with `W` `A` `S` `D`; you can also get into any parked car or a car from
   traffic. Six car models drive differently (a sports hatchback up to 144 km/h, a slow van that
-  leans in corners); `V` again next to your car swaps the model. Arcade handling, real hills,
-  collisions, and other players see you driving.
+  leans in corners); `V` again next to your car swaps the model. Realistic acceleration, speed
+  limits by road type (25 mph on residential streets and 65 mph on highways in the US, km/h
+  limits elsewhere) shown next to the speedometer, real hills, collisions, and other players see
+  you driving.
 - **Traffic**: about 20 cars drive the streets around you, keep their distance, slow down at
   junctions and stop at traffic lights, which cycle where OpenStreetMap maps them (or where
   main roads cross).
@@ -101,6 +103,7 @@ the address bar keeps your current position so you can share it.
 | Sound on / off | `N` |
 | Time of day: live / day / sunset / night | `T` |
 | Weather: live / clear / rain / snow / fog | `Y` |
+| Speed in mph / km/h | `U` |
 | Map of where you are (pick a spot to walk to) | `M` |
 | Fly out to the globe | `G` |
 | Respawn where you walked in | `R` |
@@ -155,6 +158,7 @@ js/vehicles.js          Cars (CC0 models) and bikes: arcade driving, collisions,
 js/traffic.js           Traffic cars following the streets, and traffic lights
 js/police.js            Police: crimes, wanted level, chases, roadblocks, busted/escaped, siren
 js/atmosphere.js        Sun position, sky, clouds, live weather (Open-Meteo), rain/snow, night lights
+js/limits.js            Speed limits by road class (mph in the US and UK, km/h elsewhere)
 js/multiplayer.js       Other players: connection to the relay, their characters and name tags
 js/player.js            Movement, collision response, third-person camera
 js/touch.js             Touch controls: fixed joystick with sprint lock, look, pinch zoom, Jump

@@ -7,6 +7,7 @@
 import { Vehicle, carsLoaded } from './vehicles.js';
 import { nodeKey, signalState } from './world.js';
 import { clamp, angleDelta } from './util.js';
+import { speedLimit, MPH_PER_MS, KMH_PER_MS } from './limits.js';
 
 const SIGHT = 75;                       // m: a patrol notices crimes within this, if nothing blocks the view
 const CHASE_SIGHT = 140;                // m: units in a chase keep seeing you within this
@@ -14,8 +15,6 @@ const HEAT_AT = [0, 0, 60, 150, 270, 420];   // seconds of chase for heat 1..5
 const UNITS = [0, 2, 3, 4, 5, 6];
 const BUST_TIME = 3.5, BUST_R = 9;
 const cooldownFor = (heat) => 10 + heat * 3;
-const LIMIT = { motorway: 105, motorway_link: 70, trunk: 90, trunk_link: 60, primary: 65, secondary: 55, tertiary: 50 };
-const limitOf = (road) => LIMIT[road.t] || 40;   // km/h
 const UNIT_TYPES = [null, ['police'], ['police'], ['police-suv', 'police'], ['interceptor', 'police-suv'], ['interceptor']];
 
 export class Police {
@@ -68,7 +67,7 @@ export class Police {
   _crimes(player, t) {
     const v = player.vehicle;
     if (!v || v.kind !== 'car') { this._prevSig = null; v && (v.hitNow = 0); return null; }
-    const w = this.world, kmh = Math.abs(v.speed) * 3.6;
+    const w = this.world;
     let crime = null;
     // Crashing into a car (traffic, parked, police, any vehicle).
     if (v.hitNow > 3) {
@@ -78,9 +77,12 @@ export class Police {
       if (hitCar) crime = 'Crashing into a car';
     }
     v.hitNow = 0;
-    // Speeding: well over the limit of the road you're on.
+    // Speeding: well over the limit of the road you're on (15 mph / 20 km/h).
     const rd = w.nearestRoad(v.x, v.z, 12);
-    if (!crime && rd && kmh > limitOf(rd.road) + 20) crime = `Speeding (${Math.round(kmh)} in a ${limitOf(rd.road)} zone)`;
+    if (!crime && rd) {
+      const lim = speedLimit(rd.road, this.miles), mine = Math.abs(v.speed) * (this.miles ? MPH_PER_MS : KMH_PER_MS);
+      if (mine > lim.value + (this.miles ? 15 : 20)) crime = `Speeding (${Math.round(mine)} in a ${lim.value} ${lim.unit} zone)`;
+    }
     // Running a red light: entering a junction with a light that's red for your direction.
     let inSig = null;
     for (const sig of w.signals.values()) {
