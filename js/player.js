@@ -40,8 +40,7 @@ export class Player {
   // Get into a car or onto a bike. The rider sits on the bike; a driver is hidden in the car.
   enter(vehicle) {
     this.vehicle = vehicle;
-    vehicle.driver = this;
-    this.world.obstacles.delete(vehicle);
+    vehicle.driver = this;  // stays an obstacle for others; it ignores itself
     this._walkCam = this.camDist;
     this.camDist = vehicle.spec.cam;
     this.camYaw = vehicle.yaw;
@@ -69,6 +68,7 @@ export class Player {
     this.vehicle = null;
     if (this._charParent) this._charParent.add(this.char.root);
     this.char.root.visible = true;
+    v.root.visible = true;
     this.char.setSeat(null);
     this.camDist = this._walkCam || 3.6;
     this.pos.set(x, this.world.groundAt(x, z), z);
@@ -165,5 +165,7 @@ export class Player {
     this.camera.position.copy(cam);
     this.camera.lookAt(look);
     this.char.root.visible = d > 0.7 && !(this.vehicle && this.vehicle.kind === 'car');
+    // Camera pulled in close (a wall behind): hide the car so the view isn't inside it.
+    if (this.vehicle && this.vehicle.kind === 'car') this.vehicle.root.visible = d > 3.2;
   }
 }

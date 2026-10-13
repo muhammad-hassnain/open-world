@@ -379,19 +379,20 @@ export class World {
   }
 
   // Push a circle of radius r out of building/car polygons, round colliders and obstacles
-  // (except `ignore`, e.g. the vehicle being driven).
-  resolveCircle(x, z, r, ignore = null) {
+  // (except `ignore`, e.g. the vehicle being driven). `rough`: only buildings and vehicles with a
+  // driver count (police push through traffic, parked cars, trees and posts).
+  resolveCircle(x, z, r, ignore = null, rough = false) {
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
       for (const ob of this.obstacles) {
-        if (ob === ignore) continue;
+        if (ob === ignore || (rough && !ob.driver)) continue;
         for (const c of ob.circles()) {
           const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), m = r + c.r;
           if (d < m) { const l = d || 1e-6; x = c.x + (dx / l) * m; z = c.z + (dz / l) * m; moved = true; }
         }
       }
       for (const ch of this.near(x, z, r + 0.5)) {
-        for (const hash of [ch.colliders, ch.dynColliders]) {
+        for (const hash of rough ? [ch.colliders] : [ch.colliders, ch.dynColliders]) {
           for (const c of hash.near(x, z, r + 0.5)) {
             if (c.off) continue;
             const bb = c.bbox;
@@ -415,7 +416,7 @@ export class World {
             }
           }
         }
-        for (const c of ch.circles.near(x, z, r + 0.5)) {
+        if (!rough) for (const c of ch.circles.near(x, z, r + 0.5)) {
           const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), m = r + c.r;
           if (d < m) {
             const l = d || 1e-6;
@@ -426,6 +427,17 @@ export class World {
       if (!moved) break;
     }
     return [x, z];
+  }
+
+  // The mapped area (park, wood, parking lot…) containing (x, z), or null.
+  areaAt(x, z) {
+    for (const c of this.near(x, z)) {
+      for (const a of c.areas) {
+        if (x < a.bbox.minX || x > a.bbox.maxX || z < a.bbox.minZ || z > a.bbox.maxZ) continue;
+        if (pointInShape(x, z, a.o, a.i)) return a;
+      }
+    }
+    return null;
   }
 
   // The parked car closest to (x, z) within maxD meters of its side, or null.

@@ -139,6 +139,27 @@
     color: #fff; font: 600 12px system-ui; white-space: nowrap; pointer-events: none; }
   body.touch #fps { display: none; }
 
+  /* Police chase */
+  #wanted { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); z-index: 7; display: none;
+    background: rgba(18, 22, 28, 0.82); border-radius: 12px; padding: 7px 14px 9px; min-width: 210px; text-align: center;
+    backdrop-filter: blur(6px); pointer-events: none; }
+  #wanted.show { display: block; }
+  #wanted .stars { color: #ffcf33; font-size: 18px; letter-spacing: 2px; }
+  #wanted .row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 1px; }
+  #wanted .row b { color: var(--text); font-weight: 600; }
+  #wanted .bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.15); overflow: hidden; margin-top: 5px; }
+  #wanted .fill { height: 100%; width: 0; background: #888; transition: width .2s; }
+  #wanted[data-meter="bust"] .fill { background: #ff3b30; }
+  #wanted[data-meter="cool"] .fill { background: #3d8bff; }
+  body.touch #wanted { top: 100px; }
+  @media (max-width: 720px) { #wanted { top: 100px; } }
+  #banner { position: absolute; left: 50%; top: 32%; transform: translate(-50%, -50%) scale(0.9); z-index: 9; opacity: 0;
+    font: 900 64px system-ui; letter-spacing: 0.06em; color: #fff; text-shadow: 0 4px 24px rgba(0,0,0,0.6);
+    pointer-events: none; transition: opacity .25s, transform .25s; }
+  #banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #banner[data-kind="bust"] { color: #ff4d42; }
+  #banner[data-kind="escape"] { color: #4cd964; }
+
   /* Name and character */
   #profile { position: absolute; inset: 0; z-index: 38; display: flex; align-items: center; padding: 16px 6vw;
     background: linear-gradient(90deg, rgba(14, 18, 24, 0.75), rgba(14, 18, 24, 0.1) 60%); }
@@ -255,7 +276,7 @@
 </div>
 <div id="help" class="street-ui">
   <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> run (tap twice: sprint) &nbsp; <kbd>Space</kbd> jump<br>
-  Mouse look &nbsp; wheel zoom &nbsp; <kbd>V</kbd> car &nbsp; <kbd>B</kbd> bike &nbsp; <kbd>F</kbd> get in/out &nbsp; <kbd>P</kbd> photos &nbsp; <kbd>M</kbd> map &nbsp; <kbd>G</kbd> globe &nbsp; <kbd>O</kbd> online &nbsp; <kbd>I</kbd> about &nbsp; <kbd>Esc</kbd> pause
+  Mouse look &nbsp; wheel zoom &nbsp; <kbd>V</kbd> car &nbsp; <kbd>B</kbd> bike &nbsp; <kbd>F</kbd> get in/out &nbsp; <kbd>P</kbd> photos &nbsp; <kbd>M</kbd> map &nbsp; <kbd>G</kbd> globe &nbsp; <kbd>O</kbd> online &nbsp; <kbd>N</kbd> sound &nbsp; <kbd>I</kbd> about &nbsp; <kbd>Esc</kbd> pause
 </div>
 <canvas id="minimap" class="street-ui" width="340" height="340"></canvas>
 <div id="attrib" class="street-ui">© <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> Data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Elevation <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Terrain Tiles</a></div>
@@ -266,6 +287,10 @@
   <div id="vehicle-btns"><button id="btn-use" class="hidden">Get in</button><button id="btn-car">Car</button><button id="btn-bike">Bike</button></div>
 </div>
 <div id="drive-hint" class="street-ui"></div>
+<div id="wanted" class="street-ui"><div class="stars"></div>
+  <div class="row"><span id="wanted-time"></span><b id="wanted-label">PURSUIT</b><span id="wanted-units"></span></div>
+  <div class="bar"><div class="fill"></div></div></div>
+<div id="banner" class="street-ui"></div>
 <div id="flash"></div>
 
 <div id="intro" class="hidden street-ui">

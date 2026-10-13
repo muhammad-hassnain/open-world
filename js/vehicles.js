@@ -6,7 +6,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp, lerp } from './util.js';
 
-export const CAR_TYPES = ['sedan', 'hatchback-sports', 'suv', 'suv-luxury', 'taxi', 'van'];
+// Cars people drive (traffic, parked, yours) and every model file to load (adds police cars).
+export const CAR_TYPES = ['sedan', 'hatchback-sports', 'sedan-sports', 'suv', 'suv-luxury', 'taxi', 'van'];
+const MODEL_FILES = [...CAR_TYPES, 'police'];
 const BODY_SCALE = new THREE.Vector3(1.25, 1.15, 1.7);  // the kit's cars are short and wide
 const WHEEL_SCALE = 1.15;
 
@@ -24,11 +26,18 @@ export const VEHICLE_SPECS = SPECS;
 // the steering responds), body roll in turns (x), camera distance.
 export const CAR_MODELS = {
   sedan: { label: 'Sedan', maxFwd: 30, accel: 7, steer: 1, grip: 6, roll: 1, cam: 7.5 },
+  'sedan-sports': { label: 'Sports sedan', maxFwd: 38, accel: 10, steer: 1.08, grip: 9, roll: 0.55, cam: 7 },
   'hatchback-sports': { label: 'Sports hatchback', maxFwd: 40, accel: 11, steer: 1.12, grip: 10, roll: 0.45, cam: 7 },
   suv: { label: 'SUV', maxFwd: 28, accel: 6, steer: 0.85, grip: 5, roll: 1.5, cam: 8.2 },
   'suv-luxury': { label: 'Luxury SUV', maxFwd: 35, accel: 8.5, steer: 0.92, grip: 6.5, roll: 1, cam: 8.2 },
   taxi: { label: 'Taxi', maxFwd: 31, accel: 7, steer: 1, grip: 6, roll: 1, cam: 7.5 },
   van: { label: 'Van', maxFwd: 23, accel: 4.5, steer: 0.75, grip: 4, roll: 1.9, cam: 9 },
+  // Police (police.js): stronger at higher heat. model: which file; tint: darken the paint.
+  police: { label: 'Police', maxFwd: 36, accel: 9, steer: 1.05, grip: 8, roll: 0.8, cam: 7.5, police: true },
+  'police-suv': { label: 'Police SUV', model: 'suv', maxFwd: 37, accel: 9.5, steer: 0.95, grip: 7, roll: 1.1, cam: 8.2,
+    police: true, tint: [0.3, 0.34, 0.5] },
+  interceptor: { label: 'Interceptor', model: 'sedan-sports', maxFwd: 46, accel: 13, steer: 1.12, grip: 11, roll: 0.4, cam: 7,
+    police: true, tint: [0.26, 0.26, 0.29] },
 };
 
 // ---------- car models ----------
@@ -40,7 +49,7 @@ const cars = new Map();  // type -> { body: geometry, wheels: [{ name, geometry,
 // Load the car models once; resolves when all are ready (failed ones are skipped).
 export function loadCars() {
   if (carsPromise) return carsPromise;
-  carsPromise = Promise.all(CAR_TYPES.map((t) => loader.loadAsync(`assets/vehicles/${t}.glb`).then((g) => {
+  carsPromise = Promise.all(MODEL_FILES.map((t) => loader.loadAsync(`assets/vehicles/${t}.glb`).then((g) => {
     const out = { wheels: [] };
     g.scene.updateMatrixWorld(true);
     g.scene.traverse((o) => {
@@ -66,7 +75,8 @@ export function loadCars() {
 }
 
 export const carsLoaded = () => cars.size > 0;
-export const carType = (seed) => [...cars.keys()][Math.floor(seed * cars.size) % cars.size];
+const civilian = () => CAR_TYPES.filter((t) => cars.has(t));
+export const carType = (seed) => { const c = civilian(); return c[Math.floor(seed * c.length) % c.length]; };
 
 // One merged geometry per car type for parked cars, rotated so the car points along +X.
 const parked = new Map();
@@ -147,12 +157,12 @@ function bikeModel(color = '#ff7a45') {
 export class Vehicle {
   constructor(kind, type = 'sedan', { color } = {}) {
     this.kind = kind;
-    this.type = kind === 'car' ? (cars.has(type) ? type : [...cars.keys()][0]) : 'bike';
+    this.type = kind === 'car' ? (CAR_MODELS[type] && cars.has(CAR_MODELS[type].model || type) ? type : 'sedan') : 'bike';
     this.spec = SPECS[kind];
     if (kind === 'car') {
       const m = CAR_MODELS[this.type] || CAR_MODELS.sedan;
       this.spec = { ...SPECS.car, maxFwd: m.maxFwd, accel: m.accel, steerLow: SPECS.car.steerLow * m.steer,
-        steerHigh: SPECS.car.steerHigh * m.steer, grip: m.grip, rollK: m.roll, cam: m.cam, label: m.label };
+        steerHigh: SPECS.car.steerHigh * m.steer, grip: m.grip, rollK: m.roll, cam: m.cam, label: m.label, police: !!m.police };
     } else {
       this.spec = { ...SPECS.bike, grip: 6, rollK: 0, cam: 4.5, label: 'Bike' };
     }
@@ -168,17 +178,24 @@ export class Vehicle {
   get code() { return this.kind === 'car' ? `car:${this.type}` : 'bike'; }
 
   _buildCar() {
-    const c = cars.get(this.type);
+    const m = CAR_MODELS[this.type];
+    const c = cars.get(m.model || this.type);
+    let material = c.material;
+    if (m.tint) {
+      material = c.material.clone();
+      material.color.setRGB(...m.tint);
+      material.userData = {};
+    }
     const model = new THREE.Group();
     model.rotation.y = Math.PI;  // the kit's cars face +Z
-    const body = new THREE.Mesh(c.body, c.material);
+    const body = new THREE.Mesh(c.body, material);
     body.castShadow = true;
     model.add(body);
     this.wheels = [];
     for (const w of c.wheels) {
       const pivot = new THREE.Group();
       pivot.position.copy(w.position);
-      const mesh = new THREE.Mesh(w.geometry, c.material);
+      const mesh = new THREE.Mesh(w.geometry, material);
       mesh.castShadow = true;
       pivot.add(mesh);
       model.add(pivot);
@@ -186,6 +203,28 @@ export class Vehicle {
     }
     this.wheelR = 0.3 * WHEEL_SCALE;
     this.tilt.add(model);
+    if (m.police) this._lightBar(c);
+  }
+
+  // Red and blue lights on the roof; police.js flashes them during a chase.
+  _lightBar(c) {
+    c.body.computeBoundingBox();
+    const top = c.body.boundingBox.max.y + 0.06;
+    this.bar = [];
+    for (const [x, color] of [[-0.28, '#ff2a2a'], [0.28, '#2a6bff']]) {
+      const mat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.22), mat);
+      lamp.position.set(x, top, 0.15);
+      this.tilt.add(lamp);
+      this.bar.push({ lamp, mat, color: new THREE.Color(color) });
+    }
+  }
+
+  // Flash the light bar (on: chasing) at time t.
+  flash(on, t) {
+    if (!this.bar) return;
+    const phase = Math.floor(t * 6) % 2;
+    this.bar.forEach((b, i) => b.mat.color.copy(b.color).multiplyScalar(on ? (phase === i ? 3 : 0.15) : 0.35));
   }
 
   _buildBike(color) {
@@ -230,10 +269,11 @@ export class Vehicle {
     let cx = 0, cz = 0, n = 0;
     for (const o of P.circles) {
       const px = x + fx * o, pz = z + fz * o;
-      const [qx, qz] = world.resolveCircle(px, pz, P.r, this);
+      const [qx, qz] = world.resolveCircle(px, pz, this.rough ? P.r * 0.8 : P.r, this, this.rough);
       if (Math.abs(qx - px) + Math.abs(qz - pz) > 1e-4) { cx += qx - px; cz += qz - pz; n++; }
     }
     if (n) {
+      this.hitNow = Math.max(this.hitNow || 0, Math.abs(this.speed));  // for police.js (crashes)
       x += cx / n; z += cz / n;
       const l = Math.hypot(cx, cz) || 1;
       const head = (cx * fx + cz * fz) / l * Math.sign(this.speed || 1);  // -1: head-on

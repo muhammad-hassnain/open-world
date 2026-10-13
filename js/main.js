@@ -14,6 +14,7 @@ import { Terrain } from './terrain.js';
 import { TouchControls } from './touch.js';
 import { Vehicle, loadCars, CAR_TYPES, CAR_MODELS } from './vehicles.js';
 import { Traffic, updateLights } from './traffic.js';
+import { Police, Siren } from './police.js';
 import { takeParkedCar } from './props.js';
 import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
@@ -140,7 +141,7 @@ scene.add(character.root);
 // ---------- session state ----------
 let mode = 'boot';             // 'globe' | 'loading' | 'street'
 let session = 0;
-let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null;
+let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null, police = null;
 let globe = null;
 
 function setMode(m) {
@@ -220,6 +221,12 @@ async function enterStreet(lat, lon, bearing = 0) {
   world = new World(frame, terrain);
   if (traffic) traffic.dispose();
   traffic = new Traffic({ scene, world });
+  if (police) police.dispose();
+  police = new Police({
+    scene, world, traffic, siren, onBusted: busted,
+    hud: { box: $('wanted'), stars: $('wanted').querySelector('.stars'), time: $('wanted-time'), units: $('wanted-units'),
+      label: $('wanted-label'), meter: $('wanted').querySelector('.fill'), banner: $('banner'), flash },
+  });
   mp.setWorld(frame, world);
   labels = new Labels(world, scene, camera, $('tags'));
   labels.onChange = setLabelButtons;
@@ -500,6 +507,21 @@ const carsReady = loadCars();
 const vehicles = new Set();   // vehicles in this world: summoned ones and parked cars someone took
 let myCar = null, myBike = null;
 
+// Police (police.js): one siren for the whole session; sound needs a user gesture to start.
+const siren = new Siren();
+try { siren.on = localStorage.getItem('openworld.sound') !== 'off'; } catch { /* storage unavailable */ }
+for (const ev of ['keydown', 'pointerdown', 'touchstart']) window.addEventListener(ev, () => siren.unlock(), { passive: true });
+
+// Caught: out of the car, which is impounded.
+function busted() {
+  if (!player || !player.vehicle) { flash('Busted!'); return; }
+  const v = player.exit();
+  vehicles.delete(v); world.obstacles.delete(v); scene.remove(v.root); v.dispose();
+  if (v === myCar) myCar = null;
+  if (v === myBike) myBike = null;
+  flash('Busted! Your car was impounded.');
+}
+
 function clearVehicles() {
   if (player && player.vehicle) player.exit();
   for (const v of vehicles) { scene.remove(v.root); v.dispose(); }
@@ -675,6 +697,11 @@ actions.KeyO = () => setVisible(!mp.wanted);
 actions.KeyV = () => summon('car');
 actions.KeyB = () => summon('bike');
 actions.KeyF = useVehicle;
+actions.KeyN = () => {
+  siren.on = !siren.on;
+  try { localStorage.setItem('openworld.sound', siren.on ? 'on' : 'off'); } catch { /* storage unavailable */ }
+  flash(siren.on ? 'Sound on' : 'Sound off');
+};
 $('online').addEventListener('click', () => setVisible(!mp.wanted));
 showOnline(mp.status, 0);
 actions.KeyG = () => openGlobe('globe');
@@ -738,6 +765,7 @@ function loop(now) {
     labels.update(dt, p.x, p.z);
     mp.update(dt, player);
     traffic.update(dt, player);
+    police.update(dt, player);
     if (player.vehicle) traffic.bump(player.vehicle.x, player.vehicle.z, 0);
     lightT -= dt;
     if (lightT <= 0) {
@@ -792,6 +820,7 @@ window.game = {
   get spawn() { return spawn; },
   vehicles,
   get traffic() { return traffic; },
+  get police() { return police; },
   get profile() { return profile; },
   mp,
   character,

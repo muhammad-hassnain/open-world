@@ -27,6 +27,7 @@ export class Traffic {
     this.meshes = new Map();   // car type -> InstancedMesh
     this.time = 0;
     this.spawnT = 0;
+    this.patrols = 2;          // police cars among the traffic (police.js turns this off in a chase)
     this.R = rng(12345);
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._p = new THREE.Vector3(); this._s = new THREE.Vector3(1, 1, 1);
     this._e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -47,6 +48,7 @@ export class Traffic {
   nearest(x, z, maxD) {
     let best = null, bd = maxD;
     for (const c of this.cars) {
+      if (c.type === 'police') continue;  // patrol cars can't be taken
       for (const o of CIRCLES) {
         const d = Math.hypot(x - (c.x + c.fx * o), z - (c.z + c.fz * o)) - 0.92;
         if (d < bd) { bd = d; best = c; }
@@ -100,7 +102,8 @@ export class Traffic {
       if (d < 120 && ((x - p.x) * camFx + (z - p.z) * camFz) / d > 0.5) continue;
       if (this.cars.some((c) => Math.hypot(c.x - x, c.z - z) < 25)) continue;
       const dir = road.ow ? 1 : R() < 0.5 ? 1 : -1;
-      const type = CAR_TYPES[Math.floor(R() * CAR_TYPES.length)];
+      const patrols = this.cars.filter((c) => c.type === 'police').length;
+      const type = patrols < this.patrols ? 'police' : CAR_TYPES[Math.floor(R() * CAR_TYPES.length)];
       const car = { type, road, k: dir > 0 ? k : k + 1, dir, s: dir > 0 ? s : len - s, speed: speedOf(road) * 0.8,
         x, z, fx: 0, fz: -1, y: 0, pitch: 0, lane: 0, stun: 0, cruise: speedOf(road) * (0.85 + R() * 0.25) };
       this._place(car, true);

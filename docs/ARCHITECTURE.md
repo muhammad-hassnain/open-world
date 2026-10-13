@@ -215,6 +215,22 @@ the lamps drawn in full chunks and the cars agree. Traffic cars are drawn as ins
 models and are obstacles for the player; the player can get into one (`F`), which takes it out
 of traffic. Traffic is local to each player.
 
+## Police (`police.js`)
+
+Two of the traffic cars are police patrols. Each frame the game checks what the player is doing
+in a car: speeding (20 km/h over a limit set by the road class), entering a junction on red,
+crashing into a vehicle, or driving on a sidewalk or across a park. A crime counts only if a
+police car can see it (within 75 m, no building in between). Then a chase starts: heat 1-5
+grows with chase time (and each new crime); each level brings more units (2 to 6) and stronger
+cars (police sedans, police SUVs, interceptors faster than any car you can drive), and from
+heat 4 roadblocks of police cars across the street ahead. Units are ordinary `Vehicle`s driven
+by a small controller: straight at the player when close and in sight, otherwise along an A*
+route over the road graph to where the player was last seen; they back out when stuck and are
+replaced if they stop getting closer. You're busted after 3.5 s slow with a unit within 9 m (the
+car is impounded); you escape when no unit has seen you, and none is within 70 m, for the
+cooldown (10 s + 3 s per heat level). The siren is a Web Audio oscillator whose volume follows
+the nearest unit. All of it is local to the player.
+
 ## Player, camera and HUD
 
 - Movement relative to the camera (walk 2.2 m/s, run 5.6 m/s, sprint 9 m/s, jump), collision via

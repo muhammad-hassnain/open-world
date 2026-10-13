@@ -42,6 +42,10 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Traffic**: about 20 cars drive the streets around you, keep their distance, slow down at
   junctions and stop at traffic lights, which cycle where OpenStreetMap maps them (or where
   main roads cross).
+- **Police chases**: patrol cars notice speeding, red lights, crashes and driving on sidewalks or
+  through parks. Escape them and the heat rises: more units, police SUVs, then interceptors and
+  roadblocks. Get boxed in and you're busted (your car is impounded); stay out of sight until the
+  cooldown fills and you escape. Sirens are made in the browser; `N` mutes them.
 - **Other players**: everyone online nearby shows up with their name and character, live. You
   start hidden if you began at your own location; `O` (or the Online button) shows or hides you.
 - **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars.
@@ -90,6 +94,7 @@ the address bar keeps your current position so you can share it.
 | Your car / your bike (`V` again: another car model) | `V` / `B` |
 | Get in or out (also any parked or passing car) | `F` |
 | Drive / brake | `W` `A` `S` `D` / `Space` |
+| Sound on / off | `N` |
 | Map of where you are (pick a spot to walk to) | `M` |
 | Fly out to the globe | `G` |
 | Respawn where you walked in | `R` |
@@ -142,6 +147,7 @@ js/character.js         The player's character (3D models with animations) and i
 js/profile.js           The player's name and character, kept on the device
 js/vehicles.js          Cars (CC0 models) and bikes: arcade driving, collisions, the rider
 js/traffic.js           Traffic cars following the streets, and traffic lights
+js/police.js            Police: crimes, wanted level, chases, roadblocks, busted/escaped, siren
 js/multiplayer.js       Other players: connection to the relay, their characters and name tags
 js/player.js            Movement, collision response, third-person camera
 js/touch.js             Touch controls: fixed joystick with sprint lock, look, pinch zoom, Jump

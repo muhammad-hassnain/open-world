@@ -79,6 +79,7 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/character.js` | `Character(look)`: 3D person from `LOOKS` (glTF in `assets/characters/`) with idle/walk/run blended by speed; a procedural figure stands in until it loads; `setLook()` |
 | `js/vehicles.js` | `Vehicle('car' \| 'bike', type)`: Kenney car models (stretched to real size) or a built bicycle; arcade `drive()` with footprint circles against `world.resolveCircle`, ground pitch/roll, bike lean; `loadCars()`, `parkedCarMesh()` for instanced parked cars |
 | `js/traffic.js` | `Traffic`: ~20 instanced cars following car roads via `world.nodes` (across chunks), right-hand lane, junction choice, gap keeping, red lights (`world.signalAt` + `signalState`); `take()` for the player; `buildLights`/`updateLights` for light poles in full chunks |
+| `js/police.js` | `Police`: crimes seen by patrols (`_crimes`, line of sight), heat from chase time, units (`Vehicle` + `steerTo` + A* `route` over `world.nodes`), roadblocks, busted/cooldown meters and HUD, `Siren` (Web Audio) |
 | `js/profile.js` | Player name and look in localStorage (`loadProfile`, `saveProfile`, `cleanName`) |
 | `js/player.js` | Movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
 | `js/touch.js` | `TouchControls`: joystick fixed in a bottom corner (held all the way locks a sprint that continues after release until the stick is touched again), look anywhere else, pinch zoom, Jump in the other corner; `setSide('left' \| 'right')` (saved in localStorage); adds `body.touch` / `body.stick-right` |
@@ -205,6 +206,9 @@ in detail data.
   where two roads of tertiary or higher cross with one secondary or higher). Each controller
   alternates two axes on a 36 s cycle; `signalState(sig, axis, t)` is the one source of truth for
   lamps and cars. Car models' handling is `CAR_MODELS` in `vehicles.js`.
+- Police units drive with `rough` collisions (only buildings and vehicles with a driver stop them)
+  so they don't jam on parked cars and props, and are replaced when they stop getting closer out
+  of sight. The player's driven car stays in `world.obstacles` so units can box it in.
 - Terrain PNGs are decoded in `terrain.js` (`decodePNG`), not via a canvas: browsers can
   color-manage canvas images (wide-gamut Macs), and one step in the red channel is 256 m.
 - Multiplayer privacy: a player who started at their own (geolocated) position starts hidden;
