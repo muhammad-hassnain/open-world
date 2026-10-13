@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Open World — Downtown Davis</title>
+<style>
+  :root { --panel: rgba(18, 22, 28, 0.72); --text: #f3f5f7; --muted: #aab3bd; --accent: #ff7a45; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b2128; color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #world, #tags { position: absolute; inset: 0; }
+  #tags { pointer-events: none; overflow: hidden; z-index: 4; }
+  canvas { display: block; }
+  .hidden { display: none !important; }
+
+  /* Floating tags */
+  .tag { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; align-items: center; gap: 6px;
+    padding: 5px 10px 5px 8px; border-radius: 999px; background: rgba(255,255,255,0.94); color: #22272e;
+    font-size: 13px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.25); will-change: transform, opacity; }
+  .tag::after { content: ''; position: absolute; left: 50%; bottom: -5px; margin-left: -5px;
+    border: 5px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,0.94); }
+  .tag .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .tag b { font-weight: 600; }
+  .tag small { display: none; color: #6b7480; font-size: 11px; }
+  .tag.close small { display: inline; }
+  .tag.street { background: rgba(30, 107, 69, 0.92); color: #fff; border-radius: 4px; padding: 4px 9px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+  .tag.street::after { border-top-color: rgba(30, 107, 69, 0.92); }
+
+  /* HUD */
+  #where { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 6;
+    background: var(--panel); padding: 7px 16px; border-radius: 999px; font-size: 14px; pointer-events: none;
+    backdrop-filter: blur(6px); display: flex; gap: 10px; align-items: baseline; white-space: nowrap; }
+  #where span { color: var(--muted); font-size: 12px; }
+  #labelmode { position: absolute; top: 14px; right: 14px; z-index: 6; display: flex; align-items: center; gap: 2px;
+    background: var(--panel); padding: 4px; border-radius: 999px; backdrop-filter: blur(6px); font-size: 12px; }
+  #labelmode .k { color: var(--muted); padding: 0 8px 0 10px; }
+  #labelmode button { border: 0; background: transparent; color: var(--text); font: inherit; padding: 5px 11px;
+    border-radius: 999px; cursor: pointer; }
+  #labelmode button.on { background: var(--accent); color: #fff; }
+  #fps { position: absolute; left: 14px; top: 14px; z-index: 6; font-size: 11px; color: var(--muted);
+    background: var(--panel); padding: 3px 8px; border-radius: 6px; pointer-events: none; }
+  #help { position: absolute; left: 14px; bottom: 14px; z-index: 6; font-size: 11.5px; color: var(--muted);
+    background: var(--panel); padding: 7px 10px; border-radius: 8px; line-height: 1.7; pointer-events: none; }
+  kbd { background: rgba(255,255,255,0.14); color: var(--text); border-radius: 4px; padding: 0 5px;
+    font: 11px ui-monospace, monospace; }
+  #minimap { position: absolute; right: 14px; bottom: 14px; width: 170px; height: 170px; z-index: 6; border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.85), 0 6px 18px rgba(0,0,0,0.4); }
+  #card { position: absolute; left: 50%; bottom: 22px; z-index: 6; transform: translate(-50%, 16px); opacity: 0;
+    transition: opacity .2s, transform .2s; pointer-events: none; min-width: 240px; max-width: min(420px, calc(100vw - 420px));
+    background: rgba(255,255,255,0.96); color: #22272e; border-radius: 12px; padding: 12px 16px;
+    box-shadow: 0 8px 26px rgba(0,0,0,0.3); font-size: 13px; }
+  #card.show { opacity: 1; transform: translate(-50%, 0); }
+  #card .cat { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  #card .name { font-size: 18px; font-weight: 700; margin: 2px 0 6px; }
+  #card .row { color: #444c56; margin-top: 2px; }
+  #card .row span { display: inline-block; width: 64px; color: #8a929c; font-size: 11.5px; }
+  #flash { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); z-index: 7; opacity: 0;
+    transition: opacity .2s; background: var(--panel); padding: 6px 14px; border-radius: 8px; font-size: 13px; pointer-events: none; }
+  #flash.show { opacity: 1; }
+
+  /* Overlays */
+  #intro, #loading, #mapview { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; }
+  #intro { background: rgba(14, 18, 24, 0.55); backdrop-filter: blur(3px); }
+  .panel { background: rgba(20, 25, 32, 0.92); border-radius: 16px; padding: 26px 30px; max-width: 440px;
+    box-shadow: 0 16px 50px rgba(0,0,0,0.5); }
+  .panel h1 { margin: 0 0 4px; font-size: 24px; }
+  .panel p { margin: 0 0 16px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  .controls { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 20px; }
+  .controls span:nth-child(odd) { color: var(--muted); }
+  #play { width: 100%; border: 0; border-radius: 10px; padding: 12px; font: 600 15px system-ui; cursor: pointer;
+    background: var(--accent); color: #fff; }
+  #loading { background: #1b2128; flex-direction: column; gap: 14px; }
+  #loading .track { width: 260px; height: 6px; background: #333b45; border-radius: 3px; overflow: hidden; }
+  #loading-bar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #loading-text { color: var(--muted); font-size: 14px; }
+  #mapview { background: #1b2128; }
+  #fullmap { width: 100%; height: 100%; cursor: crosshair; }
+  #mapclose { position: absolute; top: 14px; right: 14px; border: 0; border-radius: 999px; padding: 8px 14px;
+    background: var(--panel); color: var(--text); font: 13px system-ui; cursor: pointer; }
+  #maphint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: var(--panel);
+    padding: 7px 14px; border-radius: 999px; font-size: 13px; color: var(--muted); pointer-events: none; }
+
+  @media (max-width: 720px) { #help { display: none; } #card { max-width: calc(100vw - 32px); } }
+</style>
+</head>
+<body>
+<div id="world"></div>
+<div id="tags"></div>
+
+<div id="where"><b>Downtown Davis</b></div>
+<div id="labelmode"><span class="k">Labels <kbd>L</kbd></span>
+  <button data-mode="tags">Tags</button><button data-mode="signs">Signs</button><button data-mode="off">Off</button>
+</div>
+<div id="fps"></div>
+<div id="help">
+  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> run &nbsp; <kbd>Space</kbd> jump<br>
+  Mouse look &nbsp; wheel zoom &nbsp; <kbd>M</kbd> map &nbsp; <kbd>R</kbd> respawn &nbsp; <kbd>Esc</kbd> pause
+</div>
+<canvas id="minimap" width="340" height="340"></canvas>
+<div id="card"></div>
+<div id="flash"></div>
+
+<div id="intro" class="hidden">
+  <div class="panel">
+    <h1>Downtown Davis</h1>
+    <p>B &amp; C Streets, 1st to 5th. Every street, sidewalk, building and shop comes from OpenStreetMap. Walk up to a place to see what it is.</p>
+    <div class="controls">
+      <span>Move</span><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span>
+      <span>Run / jump</span><span><kbd>Shift</kbd> / <kbd>Space</kbd></span>
+      <span>Look</span><span>Mouse (or <kbd>Q</kbd> <kbd>E</kbd>)</span>
+      <span>Labels</span><span><kbd>L</kbd> — tags, signs, or off</span>
+      <span>Map</span><span><kbd>M</kbd> — click the map to jump there</span>
+      <span>Respawn</span><span><kbd>R</kbd></span>
+    </div>
+    <button id="play">Click to play</button>
+  </div>
+</div>
+
+<div id="mapview" class="hidden">
+  <canvas id="fullmap"></canvas>
+  <div id="maphint">Click anywhere to go there</div>
+  <button id="mapclose">Close map <kbd>M</kbd></button>
+</div>
+
+<div id="loading">
+  <div id="loading-text">Loading…</div>
+  <div class="track"><div id="loading-bar"></div></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
