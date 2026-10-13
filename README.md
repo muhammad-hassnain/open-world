@@ -119,9 +119,10 @@ docs/                   Architecture, data formats, roadmap, images
 ## Deploying
 
 It's a static site: any static host works, with no build step. On [Vercel](https://vercel.com),
-import the repository and keep the defaults; `vercel.json` marks it as a plain static site
-(framework "Other", no build command) and sets cache headers for textures and map data. Every
-push to `main` redeploys.
+import the repository with **Framework Preset: Other** and **Root Directory: the repository
+root** (Vercel may suggest Python and `tools/` because of the scripts there; don't accept that).
+`vercel.json` sets cache headers for textures and map data. Every push to `main` redeploys.
+Live: <https://open-world-sigma-two.vercel.app>.
 
 ## Adding a detailed area
 
