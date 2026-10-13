@@ -25,8 +25,8 @@ const DROP_R = 900;          // unload chunks farther than this
 const SHIFT = CHUNK_ZOOM - DATA_ZOOM;
 
 export class ChunkManager {
-  constructor({ frame, world, scene, labels, minimap, materials, terrain = null }) {
-    Object.assign(this, { frame, world, scene, labels, minimap, materials, terrain });
+  constructor({ frame, world, scene, labels, minimap, materials, terrain = null, signs = null }) {
+    Object.assign(this, { frame, world, scene, labels, minimap, materials, terrain, signs });
     // Heights are measured from the walk-in point, so its terrain must load before anything is built.
     const o = frame.tileAt(0, 0, DATA_ZOOM);
     this.terrainReady = terrain ? terrain.ensure(o.x, o.y).then(() => terrain.setBaseAt(0, 0)) : Promise.resolve();
@@ -157,6 +157,7 @@ export class ChunkManager {
     ch.state = 'indexed';
     this.world.add(ci);
     this.minimap.addChunk(ci);
+    if (this.signs) this.signs.addChunk(ci);
   }
 
   // ---------- building ----------
@@ -199,6 +200,7 @@ export class ChunkManager {
       this.world.remove(ch.key);
       this.labels.removeChunk(ch.key);
       this.minimap.removeChunk(ch.key);
+      if (this.signs) this.signs.removeChunk(ch.key);
     }
   }
 }
@@ -373,5 +375,6 @@ function clipData(t, rect) {
     places: (t.places || []).filter((p) => inside(p.x, p.z)),
     trees: t.trees.filter((p) => inside(p[0], p[1])),
     props: t.props.filter((p) => inside(p.x, p.z)),
+    signs: (t.signs || []).filter((p) => inside(p.x, p.z)),
   };
 }

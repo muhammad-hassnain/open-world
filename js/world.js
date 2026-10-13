@@ -170,6 +170,7 @@ export class ChunkIndex {
     this.places = data.places || [];
     this.trees = data.trees || [];
     this.props = data.props || [];
+    this.signs = data.signs || [];  // guide signs and route shields (overture.js mergeSigns)
     this.signals = computeSignals(this.junctions, this.props, key);
     this.resetDynamic();
   }

@@ -334,3 +334,158 @@ function mergeBuildings(d, layer, upm) {
   }
   for (const b of d.buildings) { delete b._bb; delete b._c; }
 }
+
+// ---------- road signs (transportation theme) ----------
+
+// Decoded road layers for a tile: { segment, connector } or null.
+export function fetchOvertureRoads(z, x, y) {
+  return withTimeout(archive('transportation').then((a) => a.tile(z, x, y)), TIMEOUT)
+    .then((buf) => { if (!buf) return null; const L = decodeTile(buf); return L.segment ? L : null; })
+    .catch(() => null);
+}
+
+// "I 80 Business East", "US 50", "CA 99", "A 1", "E40" -> { net, ref, mod, dir }.
+const REF_RE = /^([A-Za-z]+)[\s-]*(\d+[A-Za-z]?)(?:\s+(Business|Bus\.?|Alternate|Alt\.?|Spur|Loop|Truck|Bypass))?(?:\s+(North|South|East|West)(?:bound)?)?$/i;
+export function parseRef(s) {
+  const m = REF_RE.exec(String(s).trim());
+  if (!m) return { net: '', ref: String(s).trim() };
+  return { net: m[1].toUpperCase(), ref: m[2], mod: m[3] ? m[3].replace(/\.$/, '') : undefined, dir: m[4] ? m[4][0].toUpperCase() + m[4].slice(1).toLowerCase() : undefined };
+}
+// A route from Overture's `routes` ({ ref, network }) as a shield.
+function routeShield(r) {
+  if (!r.ref) return null;
+  const net = r.network || '';
+  const us = /^US:(I|US|[A-Z]{2})(?::|$)/.exec(net);
+  if (us) return { net: us[1], ref: String(r.ref).split(/[ ;]/).pop(), mod: /Business/.test(net) ? 'Business' : undefined };
+  return parseRef(r.ref);
+}
+
+// Points along a polyline (tile units): position and direction at arc length s.
+function along(pts, s) {
+  let acc = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (l < 1e-9) continue;
+    if (acc + l >= s || i === pts.length - 2) {
+      const t = Math.max(0, Math.min(1, (s - acc) / l));
+      return { x: a[0] + (b[0] - a[0]) * t, z: a[1] + (b[1] - a[1]) * t, dx: (b[0] - a[0]) / l, dz: (b[1] - a[1]) / l };
+    }
+    acc += l;
+  }
+  return null;
+}
+const lengthOf = (pts) => { let s = 0; for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return s; };
+function project(pts, x, z) {
+  let best = Infinity, at = 0, acc = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], l2 = dx * dx + dz * dz, l = Math.sqrt(l2);
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / l2)) : 0;
+    const d = Math.hypot(a[0] + dx * t - x, a[1] + dz * t - z);
+    if (d < best) { best = d; at = acc + l * t; }
+    acc += l;
+  }
+  return { d: best, at };
+}
+
+const FAST_CLASS = new Set(['motorway', 'trunk']);
+const SIGN_CLASS = new Set(['motorway', 'trunk', 'primary', 'secondary']);
+
+// Guide signs before each signposted split (Overture `destinations`: the labels for going from
+// a segment onto the next one) and route shields along freeways. Adds d.signs (tile units):
+// { x, z, dx, dz (direction of travel), k: 'guide' | 'route', fast, panels: [{ shields, toward, text, turn }] }.
+export function mergeSigns(d, L, z, y) {
+  if (!L || !L.segment) return d;
+  const s = d.extent / (L.segment.extent || 4096);
+  const n = 2 ** z;
+  const lat = Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / n)));
+  const upm = d.extent / ((40075016.686 * Math.cos(lat)) / n);
+  const conns = new Map();
+  for (const f of L.connector?.features || []) if (f.props.id && f.geometry[0]) conns.set(f.props.id, [f.geometry[0][0][0] * s, f.geometry[0][0][1] * s]);
+  const segs = new Map();
+  for (const f of L.segment.features) {
+    if (f.type !== 2 || f.props.subtype === 'rail' || !f.props.id) continue;
+    const parts = f.geometry.filter((p) => p.length > 1).map((p) => p.map(([px, pz]) => [px * s, pz * s]));
+    if (!parts.length) continue;
+    const pts = parts.reduce((a, b) => (lengthOf(b) > lengthOf(a) ? b : a));
+    segs.set(f.props.id, { p: f.props, pts });
+  }
+  const signs = [];
+  const groups = new Map();
+  for (const [id, S] of segs) {
+    const dests = S.p.destinations && json(S.p.destinations);
+    if (!dests) continue;
+    const cls = S.p.class, link = S.p.subclass === 'link';
+    for (const e of dests) {
+      const labels = e.labels || [];
+      const shields = labels.filter((l) => l.type === 'route_ref').map((l) => parseRef(l.value));
+      if (!(FAST_CLASS.has(cls) || (SIGN_CLASS.has(cls) && shields.length))) continue;
+      const c = conns.get(e.from_connector_id);
+      if (!c) continue;
+      const fwd = e.when?.heading !== 'backward';
+      const pts = fwd ? S.pts : S.pts.slice().reverse();
+      const pr = project(pts, c[0], c[1]);
+      if (pr.d > 20 * upm) continue;
+      const back = (FAST_CLASS.has(cls) && !link ? 170 : 60) * upm;
+      // Before the junction, but inside this tile (its neighbor doesn't know the junction).
+      let sAt = Math.max(Math.min(pr.at - 10 * upm, 4 * upm), pr.at - back), at = along(pts, sAt);
+      const inTile = (q) => q && q.x >= 0 && q.z >= 0 && q.x < d.extent && q.z < d.extent;
+      while (at && !inTile(at) && sAt < pr.at - 5 * upm) { sAt += 10 * upm; at = along(pts, sAt); }
+      if (!inTile(at)) continue;
+      const there = along(pts, Math.max(0, pr.at - 1));
+      if (!at || !there) continue;
+      // Which way the destination leaves the junction, relative to the direction of travel.
+      let turn = 0;
+      const T = segs.get(e.to_segment_id);
+      if (T) {
+        const t0 = project(T.pts, c[0], c[1]), len = lengthOf(T.pts);
+        const out = t0.at < len / 2 ? along(T.pts, Math.min(len, t0.at + 40 * upm)) : along(T.pts.slice().reverse(), Math.min(len, len - t0.at + 40 * upm));
+        if (out) turn = Math.atan2(there.dx * (out.z - c[1]) - there.dz * (out.x - c[0]), there.dx * (out.x - c[0]) + there.dz * (out.z - c[1]));
+      }
+      const panel = {
+        shields,
+        toward: labels.filter((l) => l.type === 'toward_route_ref').map((l) => parseRef(l.value)),
+        text: labels.filter((l) => l.type !== 'route_ref' && l.type !== 'toward_route_ref').map((l) => l.value).slice(0, 3),
+        turn: Math.abs(turn) < 0.2 ? 0 : turn > 0 ? 1 : -1,  // +1 right (z south, x east: positive cross = right)
+      };
+      if (!panel.shields.length && !panel.text.length) continue;
+      const key = `${e.from_connector_id}|${fwd}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = { x: at.x, z: at.z, dx: at.dx, dz: at.dz, k: 'guide', fast: FAST_CLASS.has(cls) && !link, panels: [] };
+        groups.set(key, g);
+        signs.push(g);
+      }
+      const sig = JSON.stringify([panel.shields, panel.text]);
+      if (!g.panels.some((q) => JSON.stringify([q.shields, q.text]) === sig)) g.panels.push(panel);
+    }
+  }
+  for (const g of signs) g.panels.sort((a, b) => a.turn - b.turn).splice(3);
+
+  // Route shields along freeways, one per route and direction every 2 km or so.
+  const seen = [];
+  for (const [, S] of segs) {
+    if (!FAST_CLASS.has(S.p.class) || S.p.subclass === 'link' || !S.p.routes) continue;
+    const len = lengthOf(S.pts);
+    if (len < 500 * upm) continue;
+    const at = along(S.pts, 220 * upm);
+    if (!at || at.x < 0 || at.z < 0 || at.x >= d.extent || at.z >= d.extent) continue;
+    const shields = [];
+    for (const r of json(S.p.routes) || []) {
+      const sh = routeShield(r);
+      if (!sh || shields.some((q) => q.net === sh.net && q.ref === sh.ref)) continue;
+      // US routes are signed with a cardinal direction: even numbers run east-west.
+      if (/^(I|US|[A-Z]{2})$/.test(sh.net) && /^US:/.test(r.network || '')) {
+        const num = parseInt(sh.ref, 10);
+        sh.dir = num % 2 === 0 ? (at.dx > 0 ? 'East' : 'West') : (at.dz > 0 ? 'South' : 'North');
+      }
+      shields.push(sh);
+    }
+    if (!shields.length) continue;
+    const key = shields.map((q) => `${q.net}${q.ref}${q.dir || ''}`).join(',');
+    if (seen.some((q) => q.key === key && Math.hypot(q.x - at.x, q.z - at.z) < 2000 * upm)) continue;
+    seen.push({ key, x: at.x, z: at.z });
+    signs.push({ x: at.x, z: at.z, dx: at.dx, dz: at.dz, k: 'route', fast: true, panels: [{ shields: shields.slice(0, 3), toward: [], text: [], turn: 0 }] });
+  }
+  d.signs = (d.signs || []).concat(signs);
+  return d;
+}

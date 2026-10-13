@@ -21,6 +21,8 @@ import { FarView } from './farview.js';
 import { takeParkedCar } from './props.js';
 import { placePhotos } from './photos.js';
 import { Globe, searchPlaces, placeName, WALK_ZOOM } from './globe.js';
+import { Navigator } from './navigate.js';
+import { RoadSigns } from './roadsigns.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -101,6 +103,9 @@ let mode = 'boot';             // 'globe' | 'loading' | 'street'
 let session = 0;
 let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null, police = null, far = null;
 let globe = null;
+let roadSigns = null;
+const nav = new Navigator($('nav'));
+nav.onChange = (line) => { if (globe) globe.setRoute(line); };
 
 function setMode(m) {
   mode = m;
@@ -170,6 +175,7 @@ async function enterStreet(lat, lon, bearing = 0) {
   $('loading-bar').style.width = '0%';
   if (chunks) chunks.dispose();
   if (labels) labels.clear();
+  if (roadSigns) roadSigns.clear();
   minimap.clear();
   clearVehicles();
   character.root.visible = false;
@@ -193,7 +199,8 @@ async function enterStreet(lat, lon, bearing = 0) {
   labels = new Labels(world, scene, camera, $('tags'));
   labels.onChange = setLabelButtons;
   setLabelButtons(labels.mode);
-  chunks = new ChunkManager({ frame, world, scene, labels, minimap, materials, terrain });
+  roadSigns = new RoadSigns(scene, world);
+  chunks = new ChunkManager({ frame, world, scene, labels, minimap, materials, terrain, signs: roadSigns });
   try {
     // Parked cars use the car models, so give them a moment to load first.
     await Promise.race([carsReady, new Promise((r) => setTimeout(r, 5000))]);
@@ -210,6 +217,7 @@ async function enterStreet(lat, lon, bearing = 0) {
   player = new Player(world, character, camera);
   player.spawn(spawn.x, spawn.z, spawn.yaw);
   character.root.visible = true;
+  nav.reframe(frame, spawn.x, spawn.z);
   placeName(lat, lon).then((n) => { if (token === session) world.placeName = n; }).catch(() => {});
   setMode('street');
   if (!profile.saved && !TEST) openProfile();
@@ -224,6 +232,7 @@ function openGlobe(kind) {
   setMode('globe');
   g.show();
   $('globe-back').classList.toggle('hidden', !player);
+  $('drive-to').classList.toggle('hidden', !player);
   if (player && frame) {
     const [lat, lon] = frame.toLatLon(player.pos.x, player.pos.z);
     const bearing = (-player.camYaw * 180) / Math.PI;
@@ -266,6 +275,16 @@ $('walk').addEventListener('click', () => {
   enterStreet(v.lat, v.lon, v.bearing);
 });
 $('globe-back').addEventListener('click', backToStreet);
+
+// Navigate from where you are to the point in the middle of the map.
+$('drive-to').addEventListener('click', () => {
+  if (!player || !frame) return;
+  const v = globe.view, dest = { lat: v.lat, lon: v.lon, name: '' };
+  const p = player.vehicle || player.pos;
+  nav.start(frame, p.x, p.z, dest);
+  placeName(v.lat, v.lon).then((n) => { if (n) dest.name = n; }).catch(() => {});
+  backToStreet();
+});
 
 $('search').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -766,6 +785,7 @@ function loop(now) {
     farGround.position.x = p.x;
     farGround.position.z = p.z;
     labels.update(dt, p.x, p.z);
+    roadSigns.update(dt, p.x, p.z);
     mp.update(dt, player);
     traffic.update(dt, player);
     police.update(dt, player);
@@ -783,6 +803,7 @@ function loop(now) {
       const street = loc.street ? `<b>${escapeHtml(loc.street)}</b>${loc.cross ? ` &amp; ${escapeHtml(loc.cross)}` : ''}` : '<b>Exploring</b>';
       $('where').innerHTML = `${street}${loc.area ? `<span>${escapeHtml(loc.area)}</span>` : ''}`;
       updateDriveHint();
+      nav.update(0.25, p.x, p.z, milesThere);
       $('conditions').textContent = atmo.label;
       const near = labels.nearest(p.x, p.z, 9);
       const changed = near && near.id !== cardId;
@@ -797,7 +818,7 @@ function loop(now) {
       $('card').classList.toggle('show', !!near);
     }
     miniT -= dt;
-    if (miniT <= 0) { miniT = 0.05; minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions()); }
+    if (miniT <= 0) { miniT = 0.05; minimap.draw(p.x, p.z, player.camYaw, player.yaw, labels.items, mp.positions(), nav.line); }
     hashT -= dt;
     if (hashT <= 0 && !TEST) {
       hashT = 2;
@@ -820,7 +841,7 @@ window.game = {
   teleport(x, z, yaw = player.yaw) { player.spawn(x, z, yaw); },
   press(code, down) { if (down) keys.add(code); else keys.delete(code); },
   openMap(open) { if (open) openGlobe('map'); else backToStreet(); },
-  openGlobe, enterStreet,
+  openGlobe, enterStreet, nav,
   get spawn() { return spawn; },
   vehicles,
   get traffic() { return traffic; },

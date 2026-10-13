@@ -59,7 +59,8 @@ export class MiniMap {
   clear() { this.chunks.clear(); }
 
   // players: other players nearby, [{ x, z }].
-  draw(px, pz, camYaw, yaw, places, players = []) {
+  // route: the navigation route, [[x, z]], drawn under the places.
+  draw(px, pz, camYaw, yaw, places, players = [], route = null) {
     const cv = this.canvas, ctx = cv.getContext('2d');
     const W = cv.width, R = W / 2;
     const k = R / VIEW_RADIUS; // screen px per meter
@@ -73,6 +74,17 @@ export class MiniMap {
     for (const { rect, canvas } of this.chunks.values()) {
       if (rect.maxX < px - reach || rect.minX > px + reach || rect.maxZ < pz - reach || rect.minZ > pz + reach) continue;
       ctx.drawImage(canvas, (rect.minX - px) * k, (rect.minZ - pz) * k, (rect.maxX - rect.minX) * k, (rect.maxZ - rect.minZ) * k);
+    }
+    if (route && route.length > 1) {
+      ctx.strokeStyle = '#3d8bfd'; ctx.lineWidth = 5 * (W / 170); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath();
+      let pen = false;
+      for (const [x, z] of route) {
+        const dx = x - px, dz = z - pz;
+        if (Math.abs(dx) > reach * 2 || Math.abs(dz) > reach * 2) { pen = false; continue; }
+        if (pen) ctx.lineTo(dx * k, dz * k); else { ctx.moveTo(dx * k, dz * k); pen = true; }
+      }
+      ctx.stroke();
     }
     for (const it of places) {
       const dx = it.x - px, dz = it.z - pz;

@@ -67,6 +67,8 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/farview.js` | `FarView`: zoom-12 `Terrain` ring mesh (420 m to 20 km, colored by height/slope) plus a sea disc, rebuilt after moving 2.5 km; sunk and depth-pushed behind the chunks; `lowAround()` drives `atmo.viewBoost` (haze lifts when high) |
 | `js/tiledata.js` | Fetch a z14 tile: detail JSON if listed in `data/detail/index.json`, else OpenFreeMap; OpenMapTiles → common format; `toLocal` |
 | `js/overture.js` | Overture Maps PMTiles reader (range requests, newest release from the bucket listing); `mergeOverture` adds fresher places (drops ones closed for good, fills address/phone/web) and footprints/building types OSM lacks |
+| `js/navigate.js` | `Navigator`: OSRM route (FOSSGIS server, OSRM demo as fallback) from the player to a map point ("Drive here"), progress along it, next maneuver / lanes / distance / ETA panel (`#nav`), reroute when off the route; `line` for the minimap, `onChange` for the map layer |
+| `js/roadsigns.js` | `RoadSigns`: guide signs (gantries on freeways, posts elsewhere) and route shields from `chunk.signs`, canvas panels built within 520 m of the player |
 | `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
 | `js/bridges.js` | Deck heights for bridges and their ramps per tile (`elevateRoads`), `deckY(road, x, z)` |
 | `js/chunks.js` | `ChunkManager`: which chunks to load/build/drop, tile prep (T-junction repair, road-width fitting, footway classification), clipping, builds |
@@ -237,6 +239,14 @@ in detail data.
 - Overture keeps only the last few monthly releases online; `overture.js` lists the bucket for the
   newest one that has both `places` and `buildings` (`FALLBACK_RELEASE` if listing fails). Overture
   calls these tiles "for data inspection", so everything must keep working when they fail.
+- Road signs come from Overture's transportation tiles (`mergeSigns` in `overture.js`): each
+  `destinations` entry (labels for going from a segment onto `to_segment` at `from_connector`)
+  becomes a panel 170 m (freeways) or 60 m before the connector, grouped per decision point; the
+  turn direction comes from the geometry of the next segment. These tiles are only fetched for
+  tiles with motorway/trunk/primary roads. US route shields get a cardinal direction from the
+  route number's parity. Exit numbers aren't in the data (OSRM has them for the route).
+- The OSRM servers are free community services: one request per route and per reroute (at most
+  every 8 s); keep it that way.
 - Nominatim allows about one request per second; search only runs on submit and reverse
   geocoding once per walk-in.
 - Pointer lock may be refused; the game then falls back to click-and-drag to look.

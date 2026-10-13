@@ -66,6 +66,21 @@ export class Globe {
     this.fitBounds([lat - dLat, lat + dLat, lon - dLon, lon + dLon]);
   }
 
+  // The navigation route as a line of [lon, lat] (null removes it).
+  setRoute(line) {
+    const map = this.map;
+    const data = { type: 'Feature', geometry: { type: 'LineString', coordinates: line || [] }, properties: {} };
+    const apply = () => {
+      if (map.getSource('route')) map.getSource('route').setData(data);
+      else {
+        map.addSource('route', { type: 'geojson', data });
+        map.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#3d8bfd', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 16, 9], 'line-opacity': 0.9 } });
+      }
+    };
+    if (map.isStyleLoaded()) apply(); else map.once('load', apply);
+  }
+
   on(event, fn) { this.map.on(event, fn); }
 }
 

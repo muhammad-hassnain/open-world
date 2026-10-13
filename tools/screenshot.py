@@ -57,7 +57,7 @@ window.__bridge = (o = {}) => {
 };
 // Stand on the nearest road of a type (e.g. 'motorway'), looking along it.
 window.__road = (type, o = {}) => {
-  const { pitch = 0.35, dist = 9, turn = 0 } = o;
+  const { pitch = 0.35, dist = 9, turn = 0, back = 0 } = o;
   const p0 = game.player;
   let best = null;
   for (const c of game.world.chunks.values()) for (const r of c.carRoads) {
@@ -71,8 +71,23 @@ window.__road = (type, o = {}) => {
   }
   if (!best) throw new Error(`no ${type} nearby`);
   const yaw = Math.atan2(-best.tx, -best.tz);
-  game.teleport(best.mx, best.mz, yaw);
+  game.teleport(best.mx - best.tx * back, best.mz - best.tz * back, yaw);
   game.setView(yaw + turn, pitch, dist);
+};
+// Stand on a freeway, 120 m before the nearest guide sign, looking at it.
+window.__sign = (o = {}) => {
+  const p0 = game.player;
+  let best = null;
+  for (const c of game.world.chunks.values()) for (const s of c.signs || []) {
+    if (o.kind && s.k !== o.kind) continue;
+    if (o.fast && !(s.fast && s.k === 'guide')) continue;
+    const d = Math.hypot(s.x - p0.x, s.z - p0.z);
+    if (!best || d < best.d) best = { d, s };
+  }
+  if (!best) throw new Error('no sign nearby');
+  const s = best.s, back = o.back ?? 110, yaw = Math.atan2(-s.dx, -s.dz);
+  game.teleport(s.x - s.dx * back, s.z - s.dz * back, yaw);
+  game.setView(yaw, o.pitch ?? 0.05, o.dist ?? 6);
 };
 }"""
 
@@ -89,6 +104,9 @@ VIEWS = {
     "freeway": ("test&at=38.5435,-121.7375", "__road('motorway');"),
     "autobahn": ("test&at=52.5003,13.2829", "__road('motorway');"),
     "overpass": ("test&at=38.5435,-121.7375", "__bridge();"),
+    "nav": ("test&at=38.4088,-121.3716", "game.nav.start(game.world.frame, game.player.pos.x, game.player.pos.z, { lat: 38.5449, lon: -121.7405, name: 'Davis' }); await new Promise((r) => setTimeout(r, 4000));"),
+    "gantry": ("test&at=38.5650,-121.5230", "game.atmo.setTimeMode('day'); __sign({ fast: true, back: 45, pitch: -0.12, dist: 4 });"),
+    "shield": ("test&at=38.5650,-121.5230", "game.atmo.setTimeMode('day'); __sign({ kind: 'route', back: 30 });"),
     "seine": ("test&at=48.8590,2.3425", "game.atmo.setTimeMode('day'); game.teleport(90, 150, 1.4); game.setView(1.4, 0.1, 7);"),
 }
 
@@ -106,7 +124,7 @@ def shoot(pw, url, name, query, setup, out, args, wait_ms):
     page.wait_for_function("window.game && window.game.ready", timeout=420_000)
     page.evaluate(HELPERS)
     if setup:
-        page.evaluate(setup)
+        page.evaluate(f"async () => {{ {setup} }}")
     page.wait_for_timeout(wait_ms)
     path = out / f"{name}.png"
     page.screenshot(path=str(path))

@@ -7,7 +7,7 @@
 // Either is then enriched with Overture Maps places and buildings (overture.js).
 
 import { decodeTile, polygons } from './mvt.js';
-import { fetchOverture, mergeOverture } from './overture.js';
+import { fetchOverture, mergeOverture, fetchOvertureRoads, mergeSigns } from './overture.js';
 
 const TILEJSON = 'https://tiles.openfreemap.org/planet';
 
@@ -29,7 +29,10 @@ function detailTiles() {
 export async function fetchTile(z, x, y) {
   const ov = fetchOverture(z, x, y);
   const d = await fetchBase(z, x, y);
-  return mergeOverture(d, await ov, z, y);
+  mergeOverture(d, await ov, z, y);
+  // Guide signs from Overture's road data, only where there are major roads to sign.
+  if (d.roads.some((r) => /^(motorway|trunk|primary)/.test(r.t))) mergeSigns(d, await fetchOvertureRoads(z, x, y), z, y);
+  return d;
 }
 
 async function fetchBase(z, x, y) {
@@ -223,5 +226,6 @@ export function toLocal(d, project) {
     lines: d.lines.map((l) => ({ ...l, p: ring(l.p) })),
     trees: d.trees.map((t) => { const [x, z] = project(t[0], t[1]); return [x, z, t[2], t[3]]; }),
     props: d.props.map(conv),
+    signs: (d.signs || []).map(conv),
   };
 }
