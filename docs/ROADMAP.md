@@ -1,6 +1,6 @@
 # Roadmap
 
-The idea: an open world of the whole planet. It starts as an accurate, stylized model built from
+The idea: an open world of the whole planet. It starts as an accurate, generated model built from
 open map data, so it covers anywhere OpenStreetMap does, and gets more realistic wherever people
 contribute real photos and video. Davis, California is the first area with extra detail.
 
@@ -12,6 +12,9 @@ contribute real photos and video. Davis, California is the first area with extra
 - **The whole world (phase 1):** globe with search, "Walk here" anywhere, streaming chunks from
   OpenFreeMap vector tiles, fly back out with `G`, detailed pre-built tiles where available,
   road widths fitted to old city streets, right-to-left map labels.
+- **Realistic materials:** CC0 textures for asphalt, concrete sidewalks, pavers, grass, siding,
+  stucco, brick, concrete, metal and roofs; parking lots with stalls; gable/hip roofs, porches,
+  shutters and balconies; roof colors measured from USGS aerial photos in the US.
 
 ## Next: more of the world, better
 
@@ -20,9 +23,9 @@ contribute real photos and video. Davis, California is the first area with extra
    only for pre-built tiles. Needs a fair-use strategy for the public Overpass API.
 3. **Big cities and regional rules.** Build chunks in a Web Worker for the densest cities;
    pick driving side, road-marking colors, sign styles and building defaults per country.
-4. **Realism of the stylized world.** Pavement and asphalt surfaces, parking lots with stalls,
-   curb ramps and continuous sidewalk corners, more varied houses and shops, better height
-   guesses where OpenStreetMap has none.
+4. **More realism.** Real-looking trees, cars and people (currently simple shapes), curb ramps
+   and continuous sidewalk corners, better height guesses where OpenStreetMap has none, and roof
+   colors outside the US.
 
 Other candidates (no order): people walking, cars driving, driving yourself, time of day and
 night lighting, touch controls, deploying as a static site.
@@ -34,7 +37,7 @@ planned first step is facade photos for a single building, then splats or meshes
 landmarks.
 
 The base layer stays OpenStreetMap everywhere. On top of it, any building or block that someone
-has captured gets a realistic version that replaces the stylized one. Coverage grows as more
+has captured gets a captured version that replaces the generated one. Coverage grows as more
 captures come in, first from the project owner, later from other people.
 
 Approaches under consideration, from simplest to most realistic:
@@ -53,9 +56,9 @@ Any of them needs the same pipeline shape:
 3. **Align**: place the result on the map. Phone GPS is only accurate to a few meters, so
    footprints from OSM are used to snap it into place, with manual adjustment at first.
 4. **Publish**: store the asset plus a small manifest (`osm_id`, transform, source, license).
-5. **Render**: when a building has an asset, the game draws it instead of the stylized version
+5. **Render**: when a building has an asset, the game draws it instead of the generated version
    and keeps using the OSM footprint for collision.
 
 Open questions: storage and hosting once there are many captures, image licensing for
 contributed media, blurring faces and license plates, moderation, and keeping captured and
-stylized blocks visually compatible.
+generated blocks visually compatible.

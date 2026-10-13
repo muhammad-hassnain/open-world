@@ -6,7 +6,7 @@ agent. Read this before making changes; read [README.md](README.md) for what the
 ## The project in one paragraph
 
 An open world of the whole planet built from OpenStreetMap data. A MapLibre globe lets you pick
-any place; "Walk here" builds a stylized, walkable 3D neighborhood around that point and streams
+any place; "Walk here" builds a realistic, walkable 3D neighborhood around that point and streams
 more as you move. Everything runs in the browser (plain ES modules + three.js 0.160.1 +
 MapLibre 5.24.0, no build step): it downloads OpenFreeMap vector tiles (or, for selected tiles,
 richer pre-built OpenStreetMap data from `data/detail/`), cuts them into chunks and generates
@@ -59,6 +59,8 @@ There is no unit-test suite; correctness is checked by loading the game.
 | --- | --- |
 | `js/main.js` | Renderer, sky, sun/shadows, screens (`globe`/`loading`/`street`), `enterStreet`, `findSpawn`, input, HUD, loop, `window.game` |
 | `js/globe.js` | MapLibre globe (OpenFreeMap style, RTL text plugin), Nominatim search and reverse geocoding |
+| `js/materials.js` | Shared `MeshStandardMaterial`s: textured (with `userData.scale` = meters per texture repeat) and plain/paint/glass/water |
+| `js/aerial.js` | USGS aerial image per z14 tile (US only) → median roof color `rc` per building |
 | `js/geo.js` | Web Mercator math, `Frame` (local meters around the walk-in point), tile rectangles; `DATA_ZOOM` 14, `CHUNK_ZOOM` 16 |
 | `js/tiledata.js` | Fetch a z14 tile: detail JSON if listed in `data/detail/index.json`, else OpenFreeMap; OpenMapTiles → common format; `toLocal` |
 | `js/mvt.js` | Mapbox Vector Tile decoder (protobuf → layers/features, polygon ring grouping) |
@@ -71,8 +73,9 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/labels.js` | Per-chunk place items, sign placement, street-sign corners, floating tags, lazy 3D signs |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
 | `js/character.js`, `js/player.js` | Character model/animation; movement, curbs, collision, camera |
-| `js/util.js` | Polygon helpers, `resample`, `offsetPolyline`, `SpatialHash`, `GeoBuilder`, `Budget` |
+| `js/util.js` | Polygon helpers, `resample`, `offsetPolyline`, `SpatialHash`, `GeoBuilder` (with world-space UVs), `MultiBuilder`, `Budget` |
 | `tools/build_detail.py` | Overpass → `data/detail/<z>/<x>/<y>.json` for tiles in `DETAIL_TILES` |
+| `tools/fetch_textures.py` | Downloads the CC0 textures into `assets/textures/` and writes `CREDITS.md` |
 | `tools/screenshot.py` | Headless screenshots (Playwright) |
 
 More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](docs/DATA.md).
@@ -103,7 +106,12 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
 - **Custom shaders** must include `#include <colorspace_fragment>` on its own line.
 - **Text in any script.** Names can be Arabic, Urdu, Hebrew, CJK, etc. HTML and canvas text
   are shaped by the browser; map labels need MapLibre's RTL plugin (already loaded).
-- **Visual style is clean and stylized:** soft palettes, Lambert materials, no photo textures yet.
+- **Realistic look:** surfaces use CC0 textures (`assets/textures/`, fetched by
+  `tools/fetch_textures.py`) on `MeshStandardMaterial`, tinted by vertex colors (a white stucco
+  texture becomes any paint color). Texture coordinates are world-anchored (`uvWall`,
+  `uvAlong`, `uvPlanar` on `GeoBuilder`) so textures line up across walls and chunks; set the
+  right one before adding faces. Rendering uses ACES tone mapping and an environment map baked
+  from the sky. Trees, cars and the character are still simple shapes.
 - **Detail data:** if you change the Overpass query or processors in `tools/build_detail.py`,
   bump `PROCESS_VERSION` and rebuild (`python3 tools/build_detail.py --force`).
 - **Credits must stay visible:** `#attrib` (street view) and MapLibre's attribution (globe)
@@ -153,6 +161,8 @@ in detail data.
 - Headless Chromium needs `--use-angle=gl-egl` to use the GPU on Linux. After many screenshots
   in one browser session `page.screenshot` can hang; `tools/screenshot.py` uses a fresh browser
   per view. MapLibre logs harmless "performance warning: READ-usage buffer" messages there.
+- Roof colors need the USGS imagery export (US only); it adds a few seconds to the first load of
+  each tile and has a 10 s timeout, after which roofs keep generated colors.
 - Nominatim allows about one request per second; search only runs on submit and reverse
   geocoding once per walk-in.
 - Pointer lock may be refused; the game then falls back to click-and-drag to look.

@@ -6,8 +6,9 @@
 //   lite: walls and roofs, ground, areas and road surfaces (the horizon)
 
 import * as THREE from 'three';
-import { CHUNK_ZOOM, DATA_ZOOM, distToRect } from './geo.js';
+import { CHUNK_ZOOM, DATA_ZOOM, distToRect, fromMerc } from './geo.js';
 import { fetchTile, toLocal } from './tiledata.js';
+import { aerialCovers, fetchAerial, sampleRoofs } from './aerial.js';
 import { clipRing, clipLine } from './clip.js';
 import { ChunkIndex, classifyRoad, roadHalfWidth } from './world.js';
 import { planBuildings, buildBuildings } from './buildings.js';
@@ -117,8 +118,15 @@ export class ChunkManager {
   _tile(tx, ty) {
     const key = `${DATA_ZOOM}/${tx}/${ty}`;
     if (!this.tiles.has(key)) {
-      this.tiles.set(key, fetchTile(DATA_ZOOM, tx, ty)
-        .then((raw) => prepareTile(toLocal(raw, this.frame.tileProjector(DATA_ZOOM, tx, ty, raw.extent || 4096))))
+      const n = 2 ** DATA_ZOOM;
+      const [lat, lon] = fromMerc((tx + 0.5) / n, (ty + 0.5) / n);
+      const aerial = aerialCovers(lat, lon) ? fetchAerial(DATA_ZOOM, tx, ty) : Promise.resolve(null);
+      this.tiles.set(key, Promise.all([fetchTile(DATA_ZOOM, tx, ty), aerial])
+        .then(([raw, img]) => {
+          const d = prepareTile(toLocal(raw, this.frame.tileProjector(DATA_ZOOM, tx, ty, raw.extent || 4096)));
+          if (img) sampleRoofs(img, d.buildings, this.frame.tileRect(DATA_ZOOM, tx, ty));
+          return d;
+        })
         .catch((e) => {
           console.warn(`[tiles] ${key} failed, showing empty ground`, e);
           return prepareTile({ source: 'vector', buildings: [], roads: [], pois: [], places: [], areas: [], zones: [], lines: [], trees: [], props: [] });
@@ -153,9 +161,9 @@ export class ChunkManager {
     ci.resetDynamic();
     await planBuildings(this.world, ci.buildings, { streets: full, rect: ci.rect, budget });
     if (!this._alive(ch)) return;
-    group.add(await buildBuildings(ci.buildings, this.materials.building, { lite: !full, rect: ci.rect, budget }));
-    const streets = await buildStreets(this.world, ci, this.materials.ground, { lite: !full, budget });
-    group.add(streets.mesh);
+    group.add(...await buildBuildings(ci.buildings, this.materials, { lite: !full, rect: ci.rect, budget }));
+    const streets = await buildStreets(this.world, ci, this.materials, { lite: !full, budget });
+    group.add(...streets.meshes);
     if (full) {
       await buildTrees(this.world, ci, streets.spots, group, budget);
       buildFurniture(this.world, ci, streets.spots, group);

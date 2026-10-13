@@ -38,6 +38,7 @@ Detail files also carry `"version"` (`PROCESS_VERSION` of the build tool) and `"
 | `mh` | Minimum height (building parts lifted off the ground), optional |
 | `c` | Colour: hex or CSS name, optional |
 | `n`, `a` | Name and `amenity`, optional (detail only) |
+| `rc` | Roof color `[r, g, b]` (sRGB 0–255) measured from aerial imagery; added in the browser for US tiles, not stored in files |
 
 ### Road
 
@@ -82,5 +83,6 @@ Detail files also carry `"version"` (`PROCESS_VERSION` of the build tool) and `"
 ## What the game adds that isn't in the data
 
 Generated, not mapped: sidewalks where none are mapped, street trees, lamps, parked cars,
-building heights and styles when unknown, facade details, roofs and colours (unless tagged), and
+building heights and styles when unknown, wall materials, facade details, roof shapes and
+colours (unless tagged or, in the US, measured from aerial photos), parking stalls, and
 narrowed road widths. Treat these as decoration; the layout, names and footprints are real.

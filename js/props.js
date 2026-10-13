@@ -24,12 +24,12 @@ const shared = (o) => { o.userData.shared = true; return o; };
 let ASSETS = null;
 function assets() {
   if (ASSETS) return ASSETS;
-  const vc = shared(new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const vc = shared(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, envMapIntensity: 0.6 }));
   ASSETS = {
     vc,
-    leaf: shared(new THREE.MeshLambertMaterial({ flatShading: true })),
-    trunk: shared(new THREE.MeshLambertMaterial({ color: '#7a5a3e' })),
-    lampHead: shared(new THREE.MeshLambertMaterial({ color: '#fff3cf', emissive: '#ffe7a8', emissiveIntensity: 0.35 })),
+    leaf: shared(new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.9, envMapIntensity: 0.5 })),
+    trunk: shared(new THREE.MeshStandardMaterial({ color: '#6e5038', roughness: 0.95 })),
+    lampHead: shared(new THREE.MeshStandardMaterial({ color: '#fff3cf', emissive: '#ffe7a8', emissiveIntensity: 0.35, roughness: 0.4 })),
     geo: Object.fromEntries(Object.entries({
       ...treeGeometries(), lamp: lampGeometry(), lampHead: lampHeadGeometry(), bench: benchGeometry(),
       bikerack: bikeRackGeometry(), hydrant: hydrantGeometry(), bin: binGeometry(),

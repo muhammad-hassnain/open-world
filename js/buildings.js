@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GeoBuilder, col, shade, hash01, orientedBox, pick } from './util.js';
+import { MultiBuilder, col, shade, hash01, orientedBox, pick } from './util.js';
 import { onBoundary } from './clip.js';
 import { colorFromTag } from './world.js';
 
@@ -14,21 +14,42 @@ const WORSHIP = new Set(['church', 'chapel', 'cathedral', 'temple', 'synagogue',
 const SHOP_POI = new Set(['food', 'shop', 'money', 'service', 'lodging']);
 const CIVIC_ZONES = new Set(['school', 'university', 'college', 'kindergarten', 'hospital', 'library']);
 
-const PAL = {
-  houseWall: ['#f1e7d3', '#d9e6ee', '#dbe5cf', '#f3e3b3', '#efd9cf', '#f6f4ef', '#e2ddd5', '#cfe0dc', '#ead8bd'],
-  houseRoof: ['#5f646d', '#6f7a88', '#a85f48', '#7a6253', '#4f5560', '#8b6f5e'],
-  shopWall: ['#c97c5d', '#e0c49a', '#efe2c8', '#d39a6a', '#bcd6c4', '#c9c7c2', '#e9cfa8', '#b56e5a', '#d8b4a0'],
-  civicWall: ['#e2ddd2', '#d9c7a3', '#c98d72', '#cfd3d6', '#e6d9bf'],
-  aptWall: ['#e8dcc6', '#d5dde3', '#e9d2bd', '#d8d0c4', '#efe4d0', '#cbbfae'],
-  warehouse: ['#c9c9c4', '#b9bcc0', '#d6d0c4', '#aeb3b8'],
-  flatRoof: ['#9a9893', '#8e9196', '#a7a39b'],
-  door: ['#8c3b2f', '#2f4f6f', '#3f6b4a', '#f4f1ea', '#7a5236'],
-  awning: ['#c0392b', '#2e7d5b', '#1f4e79', '#d68910', '#6c3483', '#117a65'],
+// Wall materials per style, with weights: varied like a real US town.
+const WALLS = {
+  house: [['siding', 5], ['stucco', 4], ['brick', 1]],
+  shopfront: [['brick', 4], ['stucco', 3], ['brick_light', 2], ['concrete', 1]],
+  civic: [['concrete', 4], ['brick', 3], ['stucco', 2], ['brick_light', 1]],
+  apartments: [['stucco', 5], ['brick', 2], ['siding', 2], ['concrete', 1]],
+  warehouse: [['metal', 6], ['concrete', 4]],
+  church: [['stucco', 6], ['brick', 4]],
+  shed: [['siding', 6], ['metal', 4]],
+  canopy: [['concrete', 1]],
 };
-const TRIM = col('#fbfaf6');
-const GLASS = col('#4f6d84');
-const GLASS_SHOP = col('#6f95aa');
+// Paint colors for stucco and siding (multiplied with the texture).
+const PAINT = {
+  stucco: ['#f4eee2', '#efe3c8', '#f3dcc0', '#e9d5b7', '#dfe6dc', '#e8e1d4', '#f1d7c4', '#d9c3a5', '#f6f2ea'],
+  siding: ['#ffffff', '#dfe9f1', '#e5ecdc', '#f6eacb', '#e3e0da', '#d6dde3', '#f2e2d9', '#cfd8cf'],
+};
+const ROOF_TINT = {
+  shingles: ['#ffffff', '#d9d4cf', '#c9b8a6', '#b9c1cb', '#e8dccc'],
+  clay_tiles: ['#ffffff', '#f2dccc', '#e6c7b5'],
+  gravel: ['#b5b2ab', '#a9aaa6', '#c2bdb2'],
+};
+// Average linear color of each roof texture, to tint it to a measured roof color.
+const ROOF_AVG = { shingles: [0.0314, 0.0303, 0.0363], clay_tiles: [0.1822, 0.0612, 0.0283], gravel: [0.2565, 0.1974, 0.1376] };
+const DOOR = ['#8c3b2f', '#2f4f6f', '#3f6b4a', '#f4f1ea', '#7a5236', '#1f2a33'];
+const AWNING = ['#c0392b', '#2e7d5b', '#1f4e79', '#d68910', '#6c3483', '#117a65'];
+const TRIM = col('#f7f5ef');
+const GLASS = col('#5f7d92');
+const GLASS_SHOP = col('#86a5b6');
 const PLINTH = col('#8d8a84');
+
+function weighted(list, r) {
+  const total = list.reduce((s, [, w]) => s + w, 0);
+  let x = r * total;
+  for (const [k, w] of list) { if ((x -= w) < 0) return k; }
+  return list[list.length - 1][0];
+}
 
 export function styleOf(b) {
   const t = b.type;
@@ -41,7 +62,6 @@ export function styleOf(b) {
   if (t === 'apartments' || t === 'dormitory' || t === 'hotel') return 'apartments';
   if (SHOP.has(t)) return 'shopfront';
   if (CIVIC.has(t)) return 'civic';
-  // Generic buildings (all of them in vector tiles): use what's inside, the zone, size and height.
   const lv = b.tagLevels || 0;
   if (shopPoi) return lv >= 4 ? 'apartments' : 'shopfront';
   if (b.pois.some((p) => p.c === 'education' || p.c === 'civic' || p.c === 'health')) return 'civic';
@@ -87,43 +107,49 @@ function facadeRect(g, e, t0, t1, y0, y1, off, c) {
   g.quad([ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az], c, [e.nx, 0, e.nz]);
 }
 
-function windowAt(g, e, t, w, y0, h, glass, frame = TRIM) {
-  facadeRect(g, e, t - w / 2 - 0.09, t + w / 2 + 0.09, y0 - 0.09, y0 + h + 0.09, 0.025, frame);
-  facadeRect(g, e, t - w / 2, t + w / 2, y0, y0 + h, 0.045, glass);
-  facadeRect(g, e, t - w / 2 - 0.15, t + w / 2 + 0.15, y0 - 0.16, y0 - 0.09, 0.06, frame);
-}
-
 function bays(len, bayW) {
   const n = Math.max(1, Math.round(len / bayW));
   const w = len / n;
   return { n, w, centers: Array.from({ length: n }, (_, i) => (i + 0.5) * w) };
 }
 
-function band(g, e, y0, y1, out, c) {
-  facadeRect(g, e, -out, e.len + out, y0, y1, out, c);
-  const p = (t, o, y) => [e.ax + e.dx * t + e.nx * o, y, e.az + e.dz * t + e.nz * o];
-  g.quad(p(-out, 0, y1), p(e.len + out, 0, y1), p(e.len + out, out, y1), p(-out, out, y1), c, [0, 1, 0]);
-  g.quad(p(-out, 0, y0), p(e.len + out, 0, y0), p(e.len + out, out, y0), p(-out, out, y0), shade(c, 0.8), [0, -1, 0]);
+// Roof faces get texture coordinates along the ridge (u) and down the slope (v).
+function roofUV(g, ux, uz, vx, vz) {
+  const s = g.scale;
+  g.uvFn = (x, y, z) => [(x * ux + z * uz) / s, ((x * vx + z * vz) * 1.12) / s];
 }
 
-function hipRoof(g, box, baseY, overhang, pitch, roofCol, trimCol) {
+function pitchedRoof(mb, key, box, baseY, overhang, pitch, gable, roofCol, trimCol, wallKey, wallCol) {
   const { cx, cz, ux, uz, vx, vz } = box;
   const HL = box.hu + overhang, HS = box.hv + overhang;
   const rise = Math.min(4.5, Math.max(0.9, HS * pitch));
   const P = (su, sv, y) => [cx + ux * su + vx * sv, y, cz + uz * su + vz * sv];
   const A = P(-HL, -HS, baseY), B = P(HL, -HS, baseY), C = P(HL, HS, baseY), D = P(-HL, HS, baseY);
-  const ridge = Math.max(0, HL - HS);
+  const ridge = gable ? HL : Math.max(0, HL - HS);
   const R1 = P(-ridge, 0, baseY + rise), R2 = P(ridge, 0, baseY + rise);
-  const up = [0, 1, 0];
-  g.quad(A, B, R2, R1, roofCol, up);
-  g.quad(C, D, R1, R2, shade(roofCol, 0.92), up);
-  g.tri(...B, ...C, ...R2, shade(roofCol, 0.85), 0, 1, 0);
-  g.tri(...D, ...A, ...R1, shade(roofCol, 0.95), 0, 1, 0);
-  g.quad(A, B, C, D, trimCol, [0, -1, 0]);
+  const g = mb.get(key);
+  roofUV(g, ux, uz, vx, vz);
+  g.quad(A, B, R2, R1, roofCol, [0, 1, 0]);
+  g.quad(C, D, R1, R2, shade(roofCol, 0.93), [0, 1, 0]);
+  if (!gable) {
+    roofUV(g, vx, vz, ux, uz);
+    g.tri(...B, ...C, ...R2, shade(roofCol, 0.86), 0, 1, 0);
+    g.tri(...D, ...A, ...R1, shade(roofCol, 0.95), 0, 1, 0);
+  } else {
+    // Gable ends: triangles of wall above the end walls.
+    const w = mb.get(wallKey);
+    for (const su of [-box.hu, box.hu]) {
+      const a = P(su, -box.hv, baseY), b = P(su, box.hv, baseY), top = P(su, 0, baseY + rise * (1 - 0 / HS));
+      w.uvWall(vx, vz);
+      w.tri(...a, ...b, ...top, wallCol, ux * Math.sign(su), 0, uz * Math.sign(su));
+    }
+  }
+  const t = mb.get('plain');
+  t.quad(A, B, C, D, trimCol, [0, -1, 0]);
   const F = 0.18;
   for (const [p, q] of [[A, B], [B, C], [C, D], [D, A]]) {
     const mx = (p[0] + q[0]) / 2 - cx, mz = (p[2] + q[2]) / 2 - cz;
-    g.quad([p[0], baseY - F, p[2]], [q[0], baseY - F, q[2]], q, p, trimCol, [mx, 0, mz]);
+    t.quad([p[0], baseY - F, p[2]], [q[0], baseY - F, q[2]], q, p, trimCol, [mx, 0, mz]);
   }
   return baseY + rise;
 }
@@ -143,7 +169,6 @@ function edgesOf(ring, rect) {
   return out;
 }
 
-// Style, height and street-facing walls per building. Needs POIs assigned and nearby roads indexed.
 export async function planBuildings(world, list, { streets = true, rect = null, budget = null } = {}) {
   for (const b of list) {
     if (budget) await budget.tick();
@@ -171,28 +196,49 @@ export async function planBuildings(world, list, { streets = true, rect = null, 
   }
 }
 
-export async function buildBuildings(list, material, { lite = false, rect = null, budget = null } = {}) {
-  const g = new GeoBuilder();
+// Picks the look of one building: wall material and paint, roof type and material, trim.
+function lookOf(b, r) {
+  const style = b.style;
+  let wallKey = weighted(WALLS[style] || WALLS.shed, r(1));
+  let wall;
+  const tagged = colorFromTag(b.colour);
+  if (tagged) {
+    if (wallKey !== 'brick' && wallKey !== 'brick_light') wallKey = 'stucco';
+    wall = tagged;
+  } else if (PAINT[wallKey]) {
+    wall = col(pick(PAINT[wallKey], r(2)));
+  } else {
+    const v = 0.88 + r(2) * 0.17;
+    wall = new THREE.Color(v, v * (0.98 + r(3) * 0.04), v * (0.96 + r(4) * 0.06));
+  }
+  const pitched = style === 'house' || style === 'church';
+  let roofKey, roofCol;
+  if (b.roofColor) {
+    // Seen from the air: reddish roofs are clay tile; the texture is tinted to the photo's color.
+    const c = b.roofColor;
+    const reddish = c.r > c.g * 1.5 && c.r > c.b * 2.2;
+    roofKey = pitched ? (reddish ? 'clay_tiles' : 'shingles') : 'gravel';
+    const avg = ROOF_AVG[roofKey];
+    roofCol = new THREE.Color(Math.min(12, (c.r * 0.85) / avg[0]), Math.min(12, (c.g * 0.85) / avg[1]), Math.min(12, (c.b * 0.85) / avg[2]));
+  } else {
+    roofKey = pitched ? (style === 'house' && r(5) < 0.3 ? 'clay_tiles' : 'shingles') : 'gravel';
+    roofCol = col(pick(ROOF_TINT[roofKey], r(6)));
+  }
+  const trim = wallKey === 'brick' || wallKey === 'brick_light' ? col('#efe7d8') : style === 'house' ? TRIM : shade(wall, 0.82);
+  return { wallKey, wall, roofKey, roofCol, trim, gable: style === 'church' || r(7) < 0.5 };
+}
+
+export async function buildBuildings(list, materials, { lite = false, rect = null, budget = null } = {}) {
+  const mb = new MultiBuilder(materials);
   for (const b of list) {
     if (budget) await budget.tick();
     const r = (k) => hash01((b.id % 100000) * 7.13 + k);
-    const style = b.style;
+    const look = lookOf(b, r);
     const h = b.h, y0 = b.minH || 0;
-    let wall, roof, trim;
-    switch (style) {
-      case 'house': wall = col(pick(PAL.houseWall, r(1))); roof = col(pick(PAL.houseRoof, r(2))); trim = TRIM; break;
-      case 'shopfront': wall = col(pick(PAL.shopWall, r(1))); roof = col(pick(PAL.flatRoof, r(2))); trim = shade(wall, 0.78); break;
-      case 'civic': wall = col(pick(PAL.civicWall, r(1))); roof = col(pick(PAL.flatRoof, r(2))); trim = shade(wall, 0.82); break;
-      case 'apartments': wall = col(pick(PAL.aptWall, r(1))); roof = col(pick(PAL.flatRoof, r(2))); trim = TRIM; break;
-      case 'church': wall = col('#f3f0e8'); roof = col('#5a5f68'); trim = TRIM; break;
-      case 'warehouse': wall = col(pick(PAL.warehouse, r(1))); roof = col(pick(PAL.flatRoof, r(2))); trim = shade(wall, 0.85); break;
-      default: wall = col('#d9d4ca'); roof = col('#8e9196'); trim = col('#bdb8ae');
-    }
-    const tagged = colorFromTag(b.colour);
-    if (tagged) { wall = tagged; if (style !== 'house') trim = shade(tagged, 0.8); }
 
-    if (style === 'canopy') {
-      g.polygon(b.outer, b.holes, h, roof, 1);
+    if (b.style === 'canopy') {
+      const g = mb.get('plain');
+      g.polygon(b.outer, b.holes, h, col('#9a9893'), 1);
       g.polygon(b.outer, b.holes, h - 0.3, col('#cfcac0'), -1);
       for (const e of b.edges) if (!e.seam) facadeRect(g, e, 0, e.len, h - 0.3, h, 0, col('#cfcac0'));
       if (!lite) {
@@ -202,42 +248,70 @@ export async function buildBuildings(list, material, { lite = false, rect = null
       continue;
     }
 
+    const walls = mb.get(look.wallKey);
     const rings = [b.edges, ...b.holes.map((hr) => edgesOf(hr, rect))];
     for (const edges of rings) {
       for (const e of edges) {
         if (e.seam) continue;
-        g.quad([e.ax, y0, e.az], [e.bx, y0, e.bz], [e.bx, h, e.bz], [e.ax, h, e.az], wall, [e.nx, 0, e.nz]);
+        walls.uvWall(e.dx, e.dz);
+        walls.quad([e.ax, y0, e.az], [e.bx, y0, e.bz], [e.bx, h, e.bz], [e.ax, h, e.az], look.wall, [e.nx, 0, e.nz]);
       }
     }
-    if (y0 > 0) g.polygon(b.outer, b.holes, y0, shade(wall, 0.7), -1);
+    if (y0 > 0) mb.get('plain').polygon(b.outer, b.holes, y0, shade(look.wall, 0.7), -1);
 
     const box = !b.clipped && orientedBox(b.outer);
     const rectish = box && b.area / Math.max(1, box.area) > 0.82 && box.hv > 1.5;
-    if ((style === 'house' || style === 'church') && rectish) {
-      b.top = hipRoof(g, box, h, style === 'house' ? 0.45 : 0.3, style === 'house' ? 0.48 : 0.95, roof, trim);
+    if ((b.style === 'house' || b.style === 'church') && rectish) {
+      b.top = pitchedRoof(mb, look.roofKey, box, h, b.style === 'house' ? 0.45 : 0.3, b.style === 'house' ? 0.5 : 0.95,
+        look.gable, look.roofCol, look.trim, look.wallKey, look.wall);
     } else {
-      g.polygon(b.outer, b.holes, h, roof, 1);
+      const roofKey = b.style === 'house' ? look.roofKey : 'gravel';
+      const g = mb.get(roofKey === 'gravel' ? 'gravel' : roofKey);
+      g.uvPlanar();
+      g.polygon(b.outer, b.holes, h, look.roofCol, 1);
     }
 
     if (lite || y0 > 0) continue;
-    if (style !== 'shed') for (const e of b.edges) if (!e.seam) facadeRect(g, e, 0, e.len, 0, 0.32, 0.012, PLINTH);
-    if (style === 'shopfront' || style === 'civic' || style === 'apartments') {
-      for (const e of b.edges) if (!e.seam) band(g, e, h - 0.42, h, 0.12, trim);
-      if (style === 'shopfront') for (const e of b.edges) if (e.street) band(g, e, b.groundH - 0.12, b.groundH + 0.08, 0.08, trim);
+    const plain = mb.get('plain');
+    if (b.style !== 'shed' && b.style !== 'warehouse') for (const e of b.edges) if (!e.seam) facadeRect(plain, e, 0, e.len, 0, 0.32, 0.012, PLINTH);
+    if (b.style === 'shopfront' || b.style === 'civic' || b.style === 'apartments') {
+      for (const e of b.edges) if (!e.seam) band(plain, e, h - 0.42, h, 0.12, look.trim);
+      if (b.style === 'shopfront') for (const e of b.edges) if (e.street) band(plain, e, b.groundH - 0.12, b.groundH + 0.08, 0.08, look.trim);
     }
-    facades(g, b, style, trim, r);
+    facades(mb, b, look, r);
   }
-  const mesh = g.mesh(material, { cast: !lite, receive: true });
-  return mesh;
+  return mb.meshes({ cast: !lite, receive: true });
 }
 
-function facades(g, b, style, trim, r) {
-  const doorCol = col(pick(PAL.door, r(5)));
+function band(g, e, y0, y1, out, c) {
+  facadeRect(g, e, -out, e.len + out, y0, y1, out, c);
+  const p = (t, o, y) => [e.ax + e.dx * t + e.nx * o, y, e.az + e.dz * t + e.nz * o];
+  g.quad(p(-out, 0, y1), p(e.len + out, 0, y1), p(e.len + out, out, y1), p(-out, out, y1), c, [0, 1, 0]);
+  g.quad(p(-out, 0, y0), p(e.len + out, 0, y0), p(e.len + out, out, y0), p(-out, out, y0), shade(c, 0.8), [0, -1, 0]);
+}
+
+function windowAt(mb, e, t, w, y0, h, glass = GLASS, frame = TRIM, shutters = null) {
+  const plain = mb.get('plain');
+  facadeRect(plain, e, t - w / 2 - 0.09, t + w / 2 + 0.09, y0 - 0.09, y0 + h + 0.09, 0.025, frame);
+  facadeRect(mb.get('glass'), e, t - w / 2, t + w / 2, y0, y0 + h, 0.045, glass);
+  facadeRect(plain, e, t - w / 2 - 0.15, t + w / 2 + 0.15, y0 - 0.16, y0 - 0.09, 0.06, frame);
+  if (shutters) {
+    facadeRect(plain, e, t - w / 2 - 0.55, t - w / 2 - 0.12, y0, y0 + h, 0.04, shutters);
+    facadeRect(plain, e, t + w / 2 + 0.12, t + w / 2 + 0.55, y0, y0 + h, 0.04, shutters);
+  }
+}
+
+function facades(mb, b, look, r) {
+  const plain = mb.get('plain');
+  const glass = mb.get('glass');
+  const doorCol = col(pick(DOOR, r(5)));
+  const trim = look.trim;
+  const shutters = b.style === 'house' && r(8) < 0.35 ? col(pick(DOOR, r(9))) : null;
   for (const e of b.edges) {
     if (e.len < 1.6 || e.seam) continue;
     const isFront = e === b.front;
 
-    if (style === 'house') {
+    if (b.style === 'house') {
       const bb = bays(e.len, 3.4);
       const doorBay = isFront ? Math.floor(bb.n / 2) : -1;
       for (let f = 0; f < b.levels; f++) {
@@ -245,14 +319,18 @@ function facades(g, b, style, trim, r) {
           if (bb.w < 1.6) continue;
           const t = bb.centers[i];
           if (f === 0 && i === doorBay) {
-            facadeRect(g, e, t - 0.6, t + 0.6, 0, 2.25, 0.025, TRIM);
-            facadeRect(g, e, t - 0.48, t + 0.48, 0.05, 2.15, 0.045, doorCol);
+            facadeRect(plain, e, t - 0.6, t + 0.6, 0, 2.25, 0.025, TRIM);
+            facadeRect(plain, e, t - 0.48, t + 0.48, 0.05, 2.15, 0.045, doorCol);
+            // Small porch roof over the door.
+            const P = (tt, o, y) => [e.ax + e.dx * tt + e.nx * o, y, e.az + e.dz * tt + e.nz * o];
+            plain.quad(P(t - 1, 0, 2.6), P(t + 1, 0, 2.6), P(t + 1, 1.2, 2.35), P(t - 1, 1.2, 2.35), shade(look.roofCol, 0.6), [e.nx, 1, e.nz]);
+            plain.quad(P(t - 1, 0, 2.6), P(t + 1, 0, 2.6), P(t + 1, 1.2, 2.35), P(t - 1, 1.2, 2.35), TRIM, [-e.nx, -1, -e.nz]);
             continue;
           }
-          windowAt(g, e, t, Math.min(1.1, bb.w - 0.7), f * b.floorH + 0.95, 1.2, GLASS);
+          windowAt(mb, e, t, Math.min(1.1, bb.w - 0.7), f * b.floorH + 0.95, 1.2, GLASS, TRIM, shutters);
         }
       }
-    } else if (style === 'shopfront') {
+    } else if (b.style === 'shopfront') {
       if (e.street) {
         const bb = bays(e.len, 3.2);
         const doorBay = isFront ? Math.floor(bb.n / 2) : -1;
@@ -260,70 +338,85 @@ function facades(g, b, style, trim, r) {
           const t = bb.centers[i], w = bb.w - 0.5;
           if (w < 0.8) continue;
           if (i === doorBay) {
-            facadeRect(g, e, t - w / 2, t + w / 2, 0, 3.3, 0.03, trim);
-            facadeRect(g, e, t - 0.6, t + 0.6, 0, 2.5, 0.05, col('#3a4e5e'));
-            facadeRect(g, e, t - w / 2 + 0.1, t - 0.7, 0.45, 3.2, 0.05, GLASS_SHOP);
-            facadeRect(g, e, t + 0.7, t + w / 2 - 0.1, 0.45, 3.2, 0.05, GLASS_SHOP);
+            facadeRect(plain, e, t - w / 2, t + w / 2, 0, 3.3, 0.03, trim);
+            facadeRect(glass, e, t - 0.6, t + 0.6, 0, 2.5, 0.05, col('#3a4e5e'));
+            facadeRect(glass, e, t - w / 2 + 0.1, t - 0.7, 0.45, 3.2, 0.05, GLASS_SHOP);
+            facadeRect(glass, e, t + 0.7, t + w / 2 - 0.1, 0.45, 3.2, 0.05, GLASS_SHOP);
           } else {
-            facadeRect(g, e, t - w / 2, t + w / 2, 0.35, 3.3, 0.03, trim);
-            facadeRect(g, e, t - w / 2 + 0.1, t + w / 2 - 0.1, 0.45, 3.2, 0.05, GLASS_SHOP);
+            facadeRect(plain, e, t - w / 2, t + w / 2, 0.35, 3.3, 0.03, trim);
+            facadeRect(glass, e, t - w / 2 + 0.1, t + w / 2 - 0.1, 0.45, 3.2, 0.05, GLASS_SHOP);
           }
         }
-        if (r(9 + e.i) < 0.55 && e.len > 2.5) awning(g, e, 0.2, e.len - 0.2, 3.55, col(pick(PAL.awning, r(11 + e.i))));
+        if (r(9 + e.i) < 0.55 && e.len > 2.5) awning(plain, e, 0.2, e.len - 0.2, 3.55, col(pick(AWNING, r(11 + e.i))));
       } else {
         const bb = bays(e.len, 4.5);
-        for (let i = 0; i < bb.n; i += 2) windowAt(g, e, bb.centers[i], 1.2, 1.2, 1.4, GLASS, trim);
+        for (let i = 0; i < bb.n; i += 2) windowAt(mb, e, bb.centers[i], 1.2, 1.2, 1.4, GLASS, trim);
       }
       const ub = bays(e.len, 3.0);
       for (let f = 1; f < b.levels; f++) {
-        for (const t of ub.centers) if (ub.w > 1.5) windowAt(g, e, t, Math.min(1.3, ub.w - 0.8), b.groundH + (f - 1) * b.floorH + 0.9, 1.6, GLASS, trim);
+        for (const t of ub.centers) if (ub.w > 1.5) windowAt(mb, e, t, Math.min(1.3, ub.w - 0.8), b.groundH + (f - 1) * b.floorH + 0.9, 1.6, GLASS, trim);
       }
-    } else if ((style === 'civic' || style === 'apartments') && b.levels >= 8) {
-      // Towers: one glass band per floor keeps the triangle count sane.
+    } else if ((b.style === 'civic' || b.style === 'apartments') && b.levels >= 8) {
       for (let f = 0; f < Math.min(b.levels, 120); f++) {
-        facadeRect(g, e, 0.3, e.len - 0.3, f * b.floorH + 0.9, f * b.floorH + 0.9 + b.floorH * 0.5, 0.04, GLASS);
+        facadeRect(glass, e, 0.3, e.len - 0.3, f * b.floorH + 0.9, f * b.floorH + 0.9 + b.floorH * 0.5, 0.04, GLASS);
       }
-    } else if (style === 'civic' || style === 'apartments') {
-      const civic = style === 'civic';
+    } else if (b.style === 'civic' || b.style === 'apartments') {
+      const civic = b.style === 'civic';
       const bb = bays(e.len, civic ? 2.6 : 3.2);
       const doorBay = isFront ? Math.floor(bb.n / 2) : -1;
-      const floors = Math.min(b.levels, 40);
-      for (let f = 0; f < floors; f++) {
+      const balconies = !civic && b.levels >= 2 && r(10) < 0.4;
+      for (let f = 0; f < b.levels; f++) {
         for (let i = 0; i < bb.n; i++) {
           if (bb.w < 1.6) continue;
           const t = bb.centers[i];
           if (f === 0 && i === doorBay) {
-            facadeRect(g, e, t - 1.1, t + 1.1, 0, 2.8, 0.03, trim);
-            facadeRect(g, e, t - 0.95, t + 0.95, 0, 2.6, 0.05, col('#3a4e5e'));
+            facadeRect(plain, e, t - 1.1, t + 1.1, 0, 2.8, 0.03, trim);
+            facadeRect(glass, e, t - 0.95, t + 0.95, 0, 2.6, 0.05, col('#3a4e5e'));
             continue;
           }
           const w = civic ? bb.w - 0.5 : Math.min(1.3, bb.w - 0.8);
-          windowAt(g, e, t, w, f * b.floorH + (civic ? 1.0 : 0.9), civic ? 1.8 : 1.4, GLASS, civic ? trim : TRIM);
+          windowAt(mb, e, t, w, f * b.floorH + (civic ? 1.0 : 0.9), civic ? 1.8 : 1.4, GLASS, civic ? trim : TRIM);
+          if (balconies && f > 0 && i % 2 === 0) balcony(plain, e, t, f * b.floorH, Math.min(2.4, bb.w * 1.4));
         }
       }
-    } else if (style === 'church') {
+    } else if (b.style === 'church') {
       const bb = bays(e.len, 3.6);
       const doorBay = isFront ? Math.floor(bb.n / 2) : -1;
       for (let i = 0; i < bb.n; i++) {
         if (bb.w < 1.8) continue;
         const t = bb.centers[i];
         if (i === doorBay) {
-          facadeRect(g, e, t - 1.0, t + 1.0, 0, 3.2, 0.03, TRIM);
-          facadeRect(g, e, t - 0.85, t + 0.85, 0, 3.0, 0.05, col('#7a5236'));
+          facadeRect(plain, e, t - 1.0, t + 1.0, 0, 3.2, 0.03, TRIM);
+          facadeRect(plain, e, t - 0.85, t + 0.85, 0, 3.0, 0.05, col('#7a5236'));
           continue;
         }
-        windowAt(g, e, t, 0.9, 1.4, 3.6, col('#5e7fa0'));
+        windowAt(mb, e, t, 0.9, 1.4, 3.6, col('#5e7fa0'));
       }
-    } else if (style === 'warehouse') {
+    } else if (b.style === 'warehouse') {
       const bb = bays(e.len, 6);
       for (let i = 0; i < bb.n; i++) {
         if (bb.w < 3) continue;
-        facadeRect(g, e, bb.centers[i] - bb.w / 2 + 0.6, bb.centers[i] + bb.w / 2 - 0.6, b.h - 2.2, b.h - 1.2, 0.04, GLASS);
+        facadeRect(glass, e, bb.centers[i] - bb.w / 2 + 0.6, bb.centers[i] + bb.w / 2 - 0.6, b.h - 2.2, b.h - 1.2, 0.04, GLASS);
       }
-      if (isFront && e.len > 6) facadeRect(g, e, e.len / 2 - 2, e.len / 2 + 2, 0, 4, 0.04, col('#9aa0a6'));
-    } else if (style === 'shed' && isFront && b.type.startsWith('garage') && e.len > 3) {
-      facadeRect(g, e, e.len / 2 - 1.3, e.len / 2 + 1.3, 0, 2.2, 0.04, col('#e4e1da'));
+      if (isFront && e.len > 6) facadeRect(plain, e, e.len / 2 - 2, e.len / 2 + 2, 0, 4, 0.04, col('#9aa0a6'));
+    } else if (b.style === 'shed' && isFront && e.len > 3) {
+      facadeRect(plain, e, e.len / 2 - 1.3, e.len / 2 + 1.3, 0, 2.2, 0.04, col('#e4e1da'));
     }
+  }
+}
+
+function balcony(g, e, t, y, w) {
+  const P = (tt, o, yy) => [e.ax + e.dx * tt + e.nx * o, yy, e.az + e.dz * tt + e.nz * o];
+  const c = col('#d9d6cf'), rail = col('#9aa0a6');
+  const D = 0.6;
+  g.quad(P(t - w / 2, 0, y), P(t + w / 2, 0, y), P(t + w / 2, D, y), P(t - w / 2, D, y), c, [0, 1, 0]);
+  g.quad(P(t - w / 2, 0, y - 0.12), P(t + w / 2, 0, y - 0.12), P(t + w / 2, D, y - 0.12), P(t - w / 2, D, y - 0.12), shade(c, 0.85), [0, -1, 0]);
+  g.quad(P(t - w / 2, D, y - 0.12), P(t + w / 2, D, y - 0.12), P(t + w / 2, D, y), P(t - w / 2, D, y), shade(c, 0.9), [e.nx, 0, e.nz]);
+  // Railing: top rail plus a light balustrade panel.
+  g.quad(P(t - w / 2, D, y + 0.9), P(t + w / 2, D, y + 0.9), P(t + w / 2, D, y + 0.96), P(t - w / 2, D, y + 0.96), rail, [e.nx, 0, e.nz]);
+  for (let k = 0; k <= Math.round(w / 0.25); k++) {
+    const tt = t - w / 2 + (k * w) / Math.round(w / 0.25);
+    g.quad(P(tt - 0.015, D, y), P(tt + 0.015, D, y), P(tt + 0.015, D, y + 0.9), P(tt - 0.015, D, y + 0.9), rail, [e.nx, 0, e.nz]);
   }
 }
 
@@ -343,10 +436,4 @@ function awning(g, e, t0, t1, y, c) {
   }
   g.tri(...P(t0, 0.05, y), ...P(t0, depth, y - drop), ...P(t0, depth, y - drop - 0.25), shade(c, 0.85), -e.dx, 0, -e.dz);
   g.tri(...P(t1, 0.05, y), ...P(t1, depth, y - drop), ...P(t1, depth, y - drop - 0.25), shade(c, 0.85), e.dx, 0, e.dz);
-}
-
-export function buildingMaterial() {
-  const m = new THREE.MeshLambertMaterial({ vertexColors: true });
-  m.userData.shared = true;
-  return m;
 }

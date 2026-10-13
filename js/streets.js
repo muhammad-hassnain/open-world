@@ -1,16 +1,23 @@
 import * as THREE from 'three';
-import { GeoBuilder, col, resample, offsetPolyline, rng } from './util.js';
+import { MultiBuilder, col, resample, offsetPolyline, rng, pointInShape } from './util.js';
 import { inRect } from './clip.js';
 import { SIDEWALK_Y, MAJOR_ROADS, CAR_ONLY } from './world.js';
 
-const C = {
-  ground: '#a7c98a', grass: '#97cc79', wood: '#84b56a', pitch: '#8cc56c', track: '#c9805f',
-  playground: '#e8d6a8', sand: '#ead9a6', farm: '#dccb8e', water: '#7cc4e4', parking: '#7d828a',
-  plaza: '#ddd6c7', asphalt: '#5d6269', service: '#686d74', yellow: '#f2c94c', white: '#f4f4ef',
-  walk: '#dcd8cf', walk2: '#d2cec4', curb: '#b8b3a9', footway: '#d8d3c8', cycleway: '#7b8088',
-  path: '#cdbb93', grate: '#5b5650',
+// Multipliers on the textures (values above 1 brighten).
+const rgb = (r, g, b) => new THREE.Color(r, g, b);
+const TINT = {
+  ground: rgb(0.98, 1.38, 0.76), grass: rgb(0.95, 1.42, 0.74), wood: rgb(0.78, 1.0, 0.7), pitch: rgb(0.95, 1.45, 0.8),
+  farm: rgb(1.45, 1.25, 0.8), sand: rgb(1.5, 1.35, 1.05), playground: rgb(1.45, 1.3, 1.0), track: rgb(1.5, 0.8, 0.6),
+  parking: rgb(1, 1, 1), plaza: rgb(1, 1, 1), water: col('#4d8db0'),
+  road: rgb(1, 1, 1), service: rgb(1.05, 1.05, 1.05), white: col('#f2f2ec'), yellow: col('#f2c94c'),
+  sidewalk: rgb(1.18, 1.16, 1.12), curb: rgb(1.05, 1.04, 1.0), footway: rgb(1.0, 1.0, 1.0), cycleway: rgb(1, 1, 1),
+  path: rgb(1.25, 1.15, 0.95), grate: col('#4e4a45'),
 };
-export const GROUND_COLOR = C.ground;
+export const GROUND_COLOR = '#7f9a5a';
+const AREA_MATERIAL = {
+  grass: 'grass', wood: 'grass', pitch: 'grass', farm: 'grass', sand: 'gravel', playground: 'gravel', track: 'gravel',
+  parking: 'lot', plaza: 'paving', water: 'water',
+};
 const Y = {
   farm: 0.004, grass: 0.008, wood: 0.008, water: 0.01, pitch: 0.012, track: 0.012, playground: 0.012,
   sand: 0.012, parking: 0.016, plaza: 0.02, service: 0.024, road: 0.028, path: 0.032, mark: 0.037, cross: 0.039,
@@ -60,22 +67,26 @@ function sidewalkSide(r, side) {
   return r.sw || 'yes';
 }
 
-function slab(g, chunk, pts, hw, y) {
+// Raised concrete sidewalk with curbs; textures follow the sidewalk's direction.
+function slab(mb, chunk, pts, hw, y) {
+  const g = mb.get('sidewalk');
   const L = offsetPolyline(pts, -hw), R = offsetPolyline(pts, hw);
-  const top = [col(C.walk), col(C.walk2)], curb = col(C.curb);
-  let s = 0;
   for (let i = 0; i < pts.length - 1; i++) {
-    const seg = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
-    const c = top[Math.floor(s / 1.5) % 2];
-    s += seg;
+    const dx = pts[i + 1][0] - pts[i][0], dz = pts[i + 1][1] - pts[i][1], l = Math.hypot(dx, dz) || 1;
     const l0 = L[i], l1 = L[i + 1], r0 = R[i], r1 = R[i + 1];
-    g.quad([l0[0], y, l0[1]], [r0[0], y, r0[1]], [r1[0], y, r1[1]], [l1[0], y, l1[1]], c, UP);
-    g.quad([l0[0], 0, l0[1]], [l1[0], 0, l1[1]], [l1[0], y, l1[1]], [l0[0], y, l0[1]], curb, [l0[0] - pts[i][0], 0, l0[1] - pts[i][1]]);
-    g.quad([r0[0], 0, r0[1]], [r1[0], 0, r1[1]], [r1[0], y, r1[1]], [r0[0], y, r0[1]], curb, [r0[0] - pts[i][0], 0, r0[1] - pts[i][1]]);
+    g.uvAlong(dx / l, dz / l);
+    g.quad([l0[0], y, l0[1]], [r0[0], y, r0[1]], [r1[0], y, r1[1]], [l1[0], y, l1[1]], TINT.sidewalk, UP);
+    g.uvWall(dx / l, dz / l);
+    g.quad([l0[0], 0, l0[1]], [l1[0], 0, l1[1]], [l1[0], y, l1[1]], [l0[0], y, l0[1]], TINT.curb, [l0[0] - pts[i][0], 0, l0[1] - pts[i][1]]);
+    g.quad([r0[0], 0, r0[1]], [r1[0], 0, r1[1]], [r1[0], y, r1[1]], [r0[0], y, r0[1]], TINT.curb, [r0[0] - pts[i][0], 0, r0[1] - pts[i][1]]);
     chunk.addRaised(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], hw);
   }
   const n = pts.length - 1;
-  const cap = (p, q, l, r) => g.quad([l[0], 0, l[1]], [r[0], 0, r[1]], [r[0], y, r[1]], [l[0], y, l[1]], curb, [p[0] - q[0], 0, p[1] - q[1]]);
+  const cap = (p, q, l, r) => {
+    const dx = r[0] - l[0], dz = r[1] - l[1], len = Math.hypot(dx, dz) || 1;
+    g.uvWall(dx / len, dz / len);
+    g.quad([l[0], 0, l[1]], [r[0], 0, r[1]], [r[0], y, r[1]], [l[0], y, l[1]], TINT.curb, [p[0] - q[0], 0, p[1] - q[1]]);
+  };
   cap(pts[0], pts[1], L[0], R[0]);
   cap(pts[n], pts[n - 1], L[n], R[n]);
 }
@@ -111,51 +122,51 @@ function walkBack(pts, vi, dir, d) {
   }
 }
 
-// Ground, areas, roads and (in full detail) markings, crosswalks, paths and sidewalks for one chunk.
-export async function buildStreets(world, chunk, material, { lite = false, budget = null } = {}) {
-  const g = new GeoBuilder();
+// Ground, areas, roads and (in full detail) markings, crosswalks, paths, sidewalks and parking stalls.
+export async function buildStreets(world, chunk, materials, { lite = false, budget = null } = {}) {
+  const mb = new MultiBuilder(materials);
   const spots = { trees: [], wells: [], lamps: [], cars: [] };
   const rect = chunk.rect;
   const tick = async () => { if (budget) await budget.tick(); };
   const nearIx = (x, z, extra) => world.near(x, z, 30).some((c) => c.junctionHash.near(x, z, 30)
     .some((j) => j.isIx && Math.hypot(j.x - x, j.z - z) < j.radius + extra));
 
-  g.polygon([[rect.minX, rect.minZ], [rect.maxX, rect.minZ], [rect.maxX, rect.maxZ], [rect.minX, rect.maxZ]], [], 0, col(C.ground));
+  mb.get('grass').polygon([[rect.minX, rect.minZ], [rect.maxX, rect.minZ], [rect.maxX, rect.maxZ], [rect.minX, rect.maxZ]], [], 0, TINT.ground);
   for (const a of chunk.areas) {
-    if (a.k in Y) g.polygon(a.o, a.i, Y[a.k], col(C[a.k]));
+    const key = AREA_MATERIAL[a.k];
+    if (key) mb.get(key).polygon(a.o, a.i, Y[a.k], TINT[a.k] || TINT.grass);
   }
-  for (const l of chunk.lines) ribbon(g, l.p, l.k === 'river' ? 6 : l.k === 'canal' ? 3 : 1.5, Y.water, col(C.water));
+  for (const l of chunk.lines) ribbon(mb.get('water'), l.p, l.k === 'river' ? 6 : l.k === 'canal' ? 3 : 1.5, Y.water, TINT.water);
 
   for (const r of chunk.roads) {
     await tick();
     if (r.kind === 'car' || r.kind === 'service') {
       const y = r.kind === 'car' ? Y.road : Y.service;
-      const c = col(r.kind === 'car' ? C.asphalt : C.service);
+      const g = mb.get(r.kind === 'car' ? 'road' : 'lot');
+      const c = r.kind === 'car' ? TINT.road : TINT.service;
       ribbon(g, r.p, r.hw, y, c);
       for (const p of [r.p[0], r.p[r.p.length - 1]]) disc(g, p[0], p[1], r.hw, y, c);
     } else if (r.kind === 'plaza') {
       const ring = r.p.slice(0, -1);
-      if (ring.length >= 3) g.polygon(ring, [], Y.plaza, col(C.plaza));
+      if (ring.length >= 3) mb.get('paving').polygon(ring, [], Y.plaza, TINT.plaza);
     } else if (lite && r.kind === 'path' && r.t === 'cycleway') {
-      ribbon(g, r.p, r.hw, Y.path, col(C.cycleway));
+      ribbon(mb.get('road'), r.p, r.hw, Y.path, TINT.cycleway);
     }
   }
-  if (lite) return { mesh: g.mesh(material, { cast: false, receive: true }), spots };
+  if (lite) return { meshes: mb.meshes({ cast: false, receive: true }), spots };
 
   markRoadCommercial(world, chunk.carRoads);
+  const paint = mb.get('paint');
 
-  // Center lines on two-way major roads, trimmed at intersections.
-  const yellow = col(C.yellow), white = col(C.white);
   for (const r of chunk.carRoads) {
     if (r.ow || !MAJOR_ROADS.has(r.t)) continue;
     await tick();
     for (const run of runs(resample(r.p, 1), (s) => !nearIx(s.x, s.z, 2.5), 2)) {
       const pts = run.map((s) => [s.x, s.z]);
-      for (const off of [-0.13, 0.13]) ribbon(g, offsetPolyline(pts, off), 0.055, Y.mark, yellow);
+      for (const off of [-0.13, 0.13]) ribbon(paint, offsetPolyline(pts, off), 0.055, Y.mark, TINT.yellow);
     }
   }
 
-  // Stop lines on each approach to an intersection.
   for (const j of chunk.junctions) {
     if (!j.isIx) continue;
     for (const a of j.carArms) {
@@ -167,17 +178,16 @@ export async function buildStreets(world, chunk, material, { lite = false, budge
         const nx = -p.tz, nz = p.tx;
         const from = r.ow ? -r.hw + 0.4 : 0.2, to = r.hw - 0.4;
         const mid = (from + to) / 2, half = (to - from) / 2;
-        groundRect(g, p.x + nx * mid, p.z + nz * mid, p.tx, p.tz, 0.22, half, Y.mark, white);
+        groundRect(paint, p.x + nx * mid, p.z + nz * mid, p.tx, p.tz, 0.22, half, Y.mark, TINT.white);
       }
     }
   }
 
-  // Crosswalks: ladder stripes where a crossing path is over car asphalt.
   for (const r of chunk.roads) {
     if (r.kind !== 'crossing' || r.cm === 'no' || r.cr === 'unmarked' || r.cr === 'no') continue;
     await tick();
     for (const s of resample(r.p, 0.9)) {
-      if (world.onRoad(s.x, s.z, -0.2, null, CAR_ONLY)) groundRect(g, s.x, s.z, s.tx, s.tz, 0.22, 1.5, Y.cross, white);
+      if (world.onRoad(s.x, s.z, -0.2, null, CAR_ONLY)) groundRect(paint, s.x, s.z, s.tx, s.tz, 0.22, 1.5, Y.cross, TINT.white);
     }
   }
   const nearCrossing = (x, z, d) => world.near(x, z, d).some((c) => c.pathSegs.near(x, z, d)
@@ -186,22 +196,33 @@ export async function buildStreets(world, chunk, material, { lite = false, budge
   for (const r of chunk.roads) {
     if (r.kind !== 'path') continue;
     await tick();
-    const c = col(r.t === 'cycleway' ? C.cycleway : r.t === 'path' || r.t === 'track' ? C.path : C.footway);
+    const key = r.t === 'cycleway' ? 'road' : r.t === 'path' || r.t === 'track' ? 'gravel' : 'sidewalk';
+    const c = r.t === 'cycleway' ? TINT.cycleway : key === 'gravel' ? TINT.path : TINT.footway;
+    const g = mb.get(key);
     for (const run of runs(resample(r.p, 0.8), (s) => !world.onRoad(s.x, s.z, 0.3, null, CAR_ONLY), 1)) {
-      ribbon(g, run.map((s) => [s.x, s.z]), r.hw, Y.path, c);
+      const pts = run.map((s) => [s.x, s.z]);
+      if (key === 'sidewalk') {
+        const L = offsetPolyline(pts, -r.hw), R = offsetPolyline(pts, r.hw);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const dx = pts[i + 1][0] - pts[i][0], dz = pts[i + 1][1] - pts[i][1], l = Math.hypot(dx, dz) || 1;
+          g.uvAlong(dx / l, dz / l);
+          g.quad([L[i][0], Y.path, L[i][1]], [R[i][0], Y.path, R[i][1]], [R[i + 1][0], Y.path, R[i + 1][1]], [L[i + 1][0], Y.path, L[i + 1][1]], c, UP);
+        }
+      } else {
+        g.uvPlanar();
+        ribbon(g, pts, r.hw, Y.path, c);
+      }
     }
   }
 
-  // Sidewalks: mapped ones, then generated along streets where none is mapped nearby.
   for (const r of chunk.roads) {
     if (r.kind !== 'sidewalk') continue;
     await tick();
     for (const run of runs(resample(r.p, 0.6), (s) => !world.onRoad(s.x, s.z, 0.1, null, CAR_ONLY), 1)) {
-      slab(g, chunk, run.map((s) => [s.x, s.z]), r.hw, SIDEWALK_Y);
+      slab(mb, chunk, run.map((s) => [s.x, s.z]), r.hw, SIDEWALK_Y);
     }
   }
 
-  const grate = col(C.grate);
   for (const r of chunk.carRoads) {
     await tick();
     const strip = r.commercial ? 0 : 1.3;
@@ -221,7 +242,7 @@ export async function buildStreets(world, chunk, material, { lite = false, budge
       const line = offsetPolyline(r.p, side * (r.hw + strip + sw / 2));
       const keep = (s) => inRect(s.x, s.z, rect) && !world.onRoad(s.x, s.z, 0.2, r, CAR_ONLY) && !world.nearSidewalk(s.x, s.z, 6.5);
       for (const run of runs(resample(line, 0.6), keep, 1.2)) {
-        slab(g, chunk, run.map((s) => [s.x, s.z]), sw / 2, SIDEWALK_Y);
+        slab(mb, chunk, run.map((s) => [s.x, s.z]), sw / 2, SIDEWALK_Y);
         let nextTree = R() * 6, nextLamp = 6 + (side > 0 ? 0 : 15) + R() * 4;
         for (const s of run) {
           const nx = -s.tz * side, nz = s.tx * side;
@@ -253,20 +274,45 @@ export async function buildStreets(world, chunk, material, { lite = false, budge
     }
   }
 
+  parkingStalls(world, chunk, paint, spots);
+
   const clear = (p, rad) => inRect(p.x, p.z, rect, -1) && !world.onRoad(p.x, p.z, 0.5) && !nearIx(p.x, p.z, 3)
     && !world.buildingAt(p.x, p.z) && !world.buildingAt(p.x + rad, p.z) && !world.buildingAt(p.x - rad, p.z)
     && !world.buildingAt(p.x, p.z + rad) && !world.buildingAt(p.x, p.z - rad);
   const onWalkway = (p, d) => world.groundAt(p.x, p.z) > 0 || world.nearPath(p.x, p.z, d);
-  spots.trees = spots.trees.filter((p) => clear(p, 1.2) && !nearCrossing(p.x, p.z, 2.5) && !onWalkway(p, 0.6));
+  const inLot = (p) => chunk.areas.some((a) => a.k === 'parking' && pointInShape(p.x, p.z, a.o, a.i));
+  spots.trees = spots.trees.filter((p) => clear(p, 1.2) && !nearCrossing(p.x, p.z, 2.5) && !onWalkway(p, 0.6) && !inLot(p));
   spots.wells = spots.wells.filter((p) => clear(p, 0.8) && !nearCrossing(p.x, p.z, 2.5));
   spots.lamps = spots.lamps.filter((p) => clear(p, 0.4) && !nearCrossing(p.x, p.z, 1.5));
-  for (const p of spots.wells) groundRect(g, p.x, p.z, 1, 0, 0.6, 0.6, SIDEWALK_Y + 0.006, grate);
+  for (const p of spots.wells) groundRect(mb.get('plain'), p.x, p.z, 1, 0, 0.6, 0.6, SIDEWALK_Y + 0.006, TINT.grate);
 
-  return { mesh: g.mesh(material, { cast: false, receive: true }), spots };
+  return { meshes: mb.meshes({ cast: false, receive: true }), spots };
 }
 
-export function groundMaterial() {
-  const m = new THREE.MeshLambertMaterial({ vertexColors: true });
-  m.userData.shared = true;
-  return m;
+// Painted stalls on both sides of parking aisles inside mapped parking lots, plus cars in some.
+function parkingStalls(world, chunk, paint, spots) {
+  const lots = chunk.areas.filter((a) => a.k === 'parking');
+  if (!lots.length) return;
+  const inLot = (x, z) => lots.some((l) => x >= l.bbox.minX && x <= l.bbox.maxX && z >= l.bbox.minZ && z <= l.bbox.maxZ && pointInShape(x, z, l.o, l.i));
+  const R = rng((Math.round(chunk.rect.minX) * 7 + Math.round(chunk.rect.minZ)) >>> 0);
+  const STALL = 2.7, DEPTH = 5.2;
+  for (const r of chunk.roads) {
+    if (r.kind !== 'service' || r.sv !== 'parking_aisle') continue;
+    const samples = resample(r.p, STALL);
+    const total = samples.length ? samples[samples.length - 1].s : 0;
+    for (const s of samples) {
+      if (s.s < 2 || s.s > total - 2) continue;
+      for (const side of [-1, 1]) {
+        const nx = -s.tz * side, nz = s.tx * side;
+        const near = r.hw + 0.15, mid = r.hw + DEPTH / 2;
+        const mx = s.x + nx * mid, mz = s.z + nz * mid;
+        if (!inLot(mx, mz) || !inLot(s.x + nx * (r.hw + DEPTH), s.z + nz * (r.hw + DEPTH))) continue;
+        if (world.buildingAt(mx, mz) || world.onRoad(mx, mz, -0.3, r)) continue;
+        groundRect(paint, s.x + nx * (near + DEPTH / 2), s.z + nz * (near + DEPTH / 2), nx, nz, DEPTH / 2, 0.06, Y.mark, TINT.white);
+        // A car in the stall after this line, nose in.
+        const cx = mx + s.tx * STALL / 2, cz = mz + s.tz * STALL / 2;
+        if (R() < 0.55 && inLot(cx, cz) && !world.buildingAt(cx, cz)) spots.cars.push({ x: cx, z: cz, ux: nx, uz: nz, seed: R() });
+      }
+    }
+  }
 }

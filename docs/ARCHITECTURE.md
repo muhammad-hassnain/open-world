@@ -47,6 +47,14 @@ For each z14 tile:
 Both produce the same common format in tile units ([DATA.md](DATA.md)); `toLocal()` converts it
 to meters in the current frame. The browser's HTTP cache keeps tiles for revisits.
 
+## Roof colors (`aerial.js`)
+
+For tiles inside the US, the USGS/USDA orthoimagery export for the tile's extent (1024 px,
+about 1.5–2.4 m per pixel) is fetched alongside the map data. Each building samples a grid of
+pixels inside its footprint, drops shadows and green tree canopy, and keeps the median as its
+roof color. Reddish roofs become clay tile; the roof texture is tinted so its average matches
+the measured color.
+
 ## Tile preparation (`chunks.js: prepareTile`)
 
 Once per z14 tile, in meters:
@@ -119,10 +127,19 @@ grid. Main queries:
 - HUD: location bar, label mode, info card for the nearest place, rotating minimap, fps,
   credits; the URL hash tracks the current position.
 
+## Materials
+
+`materials.js` builds shared `MeshStandardMaterial`s once: textured ground (asphalt, light
+asphalt for lots, concrete sidewalk, pavers, grass, gravel), walls (stucco, siding, two bricks,
+concrete, corrugated metal) and roofs (shingles, clay tiles), plus untextured plain, paint, glass
+and water. Builders write each surface into a `MultiBuilder`, one merged mesh per material per
+chunk; vertex colors tint the textures (paint colors, roof colors). Texture coordinates come from
+world position, so textures line up across faces and chunk borders.
+
 ## Rendering and performance
 
-One WebGL renderer with logarithmic depth, PCF soft shadows from a sun that follows the player
+One WebGL renderer with ACES tone mapping, an environment map baked from the sky gradient, logarithmic depth, PCF soft shadows from a sun that follows the player
 (±60 m), hemisphere light, gradient sky dome, fog from 120 to 620 m and a large ground plane under
-everything. Typical cost in dense cities: 40–60 draw calls and 0.4–1.1M triangles at 60 fps on a
+everything. Typical cost: 100–200 draw calls (one per material per chunk) and 0.4–1.1M triangles at 60 fps on a
 desktop GPU; a z14 tile decodes in 40–140 ms. The three.js loop stops rendering while the globe
 is open.

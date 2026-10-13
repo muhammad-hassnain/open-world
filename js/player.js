@@ -41,7 +41,7 @@ export class Player {
     // Camera orientation from mouse / keys.
     this.camYaw -= input.lookX;
     this.camPitch = clamp(this.camPitch + input.lookY, -0.45, 1.2);
-    this.camDist = clamp(this.camDist + input.zoom, 1.4, 10);
+    this.camDist = clamp(this.camDist + input.zoom, 1.4, 25);
 
     // Desired horizontal movement relative to the camera.
     const fx = -Math.sin(this.camYaw), fz = -Math.cos(this.camYaw);

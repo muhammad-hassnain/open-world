@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { Frame } from './geo.js';
 import { World } from './world.js';
-import { buildingMaterial } from './buildings.js';
-import { groundMaterial, GROUND_COLOR } from './streets.js';
+import { makeMaterials } from './materials.js';
+import { GROUND_COLOR } from './streets.js';
 import { ChunkManager } from './chunks.js';
 import { Character } from './character.js';
 import { Player } from './player.js';
@@ -23,41 +23,57 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 $('world').appendChild(renderer.domElement);
 
-const HORIZON = new THREE.Color('#d8eaf5');
+const HORIZON = new THREE.Color('#dce8f2');
 const scene = new THREE.Scene();
 scene.background = HORIZON;
 scene.fog = new THREE.Fog(HORIZON, 120, 620);
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 2000);
 
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(1200, 32, 16),
-  new THREE.ShaderMaterial({
+// Gradient sky; tone-mapped like the rest of the scene so it matches the fog at the horizon.
+function skyMaterial(top, horizon, ground) {
+  return new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
-    uniforms: { top: { value: new THREE.Color('#5b9fe3') }, horizon: { value: HORIZON } },
+    uniforms: { top: { value: top }, horizon: { value: horizon }, ground: { value: ground } },
     vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: `
       uniform vec3 top;
       uniform vec3 horizon;
+      uniform vec3 ground;
       varying vec3 vP;
       void main() {
-        float h = clamp(normalize(vP).y, 0.0, 1.0);
-        gl_FragColor = vec4(mix(horizon, top, pow(h, 0.55)), 1.0);
+        float h = normalize(vP).y;
+        vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.55)) : mix(horizon, ground, pow(min(1.0, -h * 4.0), 0.6));
+        gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
-  }),
-);
+  });
+}
+const SKY_TOP = new THREE.Color('#4f93db');
+const sky = new THREE.Mesh(new THREE.SphereGeometry(1200, 32, 16), skyMaterial(SKY_TOP, HORIZON, HORIZON));
 sky.renderOrder = -1;
 scene.add(sky);
 
+// Soft outdoor light for the PBR materials, baked from the same sky over a grassy ground.
+{
+  const envScene = new THREE.Scene();
+  envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), skyMaterial(SKY_TOP, HORIZON, new THREE.Color('#6d7a55'))));
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(envScene, 0.02).texture;
+  pmrem.dispose();
+}
+
 // Ground beyond the loaded chunks, so the horizon never shows a void.
-const farGround = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: GROUND_COLOR }));
+const farGround = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: GROUND_COLOR, roughness: 1 }));
 farGround.position.y = -0.05;
 scene.add(farGround);
 
-scene.add(new THREE.HemisphereLight('#e2efff', '#a3ad86', 1.6));
-const sun = new THREE.DirectionalLight('#fff0d8', 2.5);
+scene.add(new THREE.HemisphereLight('#e2efff', '#8e9a72', 0.7));
+const sun = new THREE.DirectionalLight('#fff0d8', 3.0);
 const SUN_DIR = new THREE.Vector3(-0.5, 0.78, 0.38).normalize();
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -72,7 +88,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-const materials = { building: buildingMaterial(), ground: groundMaterial() };
+const materials = makeMaterials(renderer);
 const minimap = new MiniMap($('minimap'));
 const character = new Character();
 character.root.visible = false;

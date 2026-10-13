@@ -263,9 +263,23 @@ export class SpatialHash {
 // ---------- Geometry builder: flat-shaded, vertex-colored triangles ----------
 
 export class GeoBuilder {
-  constructor() { this.p = []; this.n = []; this.c = []; }
+  // With `uv`, every vertex gets texture coordinates from `this.uvFn(x, y, z)`; callers set
+  // uvFn per surface (e.g. along a wall or along a sidewalk) so textures line up in world space.
+  constructor({ uv = false, scale = 1 } = {}) {
+    this.p = []; this.n = []; this.c = [];
+    this.uvOn = uv;
+    this.uv = [];
+    this.scale = scale;
+    this.uvFn = (x, y, z) => [x / this.scale, z / this.scale];
+  }
 
   get count() { return this.p.length / 3; }
+
+  // Texture coordinates along direction (dx, dz) and up the y axis (walls, curbs).
+  uvWall(dx, dz) { const s = this.scale; this.uvFn = (x, y, z) => [(x * dx + z * dz) / s, y / s]; return this; }
+  // Texture coordinates aligned with a direction on the ground (sidewalks, stalls).
+  uvAlong(dx, dz) { const s = this.scale; this.uvFn = (x, y, z) => [(x * dx + z * dz) / s, (z * dx - x * dz) / s]; return this; }
+  uvPlanar() { const s = this.scale; this.uvFn = (x, y, z) => [x / s, z / s]; return this; }
 
   // Adds triangle; if (fx,fy,fz) is given, flips winding so the normal faces that direction.
   tri(ax, ay, az, bx, by, bz, cx, cy, cz, col, fx, fy, fz) {
@@ -282,6 +296,7 @@ export class GeoBuilder {
     }
     this.p.push(ax, ay, az, bx, by, bz, cx, cy, cz);
     for (let i = 0; i < 3; i++) { this.n.push(nx, ny, nz); this.c.push(col.r, col.g, col.b); }
+    if (this.uvOn) this.uv.push(...this.uvFn(ax, ay, az), ...this.uvFn(bx, by, bz), ...this.uvFn(cx, cy, cz));
   }
 
   // Quad a-b-c-d (each [x,y,z]); optional facing direction f = [fx,fy,fz].
@@ -330,6 +345,7 @@ export class GeoBuilder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
+    if (this.uvOn) g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.computeBoundingSphere();
     return g;
   }
@@ -339,6 +355,33 @@ export class GeoBuilder {
     m.castShadow = cast;
     m.receiveShadow = receive;
     return m;
+  }
+}
+
+// One GeoBuilder per material; materials carry their texture scale in userData.scale.
+export class MultiBuilder {
+  constructor(materials) { this.materials = materials; this.builders = new Map(); }
+
+  get(key) {
+    let b = this.builders.get(key);
+    if (!b) {
+      const m = this.materials[key];
+      if (!m) throw new Error(`unknown material ${key}`);
+      b = new GeoBuilder({ uv: !!m.map, scale: m.userData.scale || 1 });
+      this.builders.set(key, b);
+    }
+    return b;
+  }
+
+  meshes({ cast = false, receive = true } = {}) {
+    const out = [];
+    for (const [key, b] of this.builders) {
+      if (!b.count) continue;
+      const m = b.mesh(this.materials[key], { cast: cast && !this.materials[key].userData.noShadow, receive });
+      m.name = key;
+      out.push(m);
+    }
+    return out;
   }
 }
 

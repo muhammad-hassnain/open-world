@@ -133,6 +133,7 @@ export class ChunkIndex {
     return {
       id: b.id, type: b.t, name: b.n, amenity: b.a, tagH: b.h, tagLevels: b.l, minH: b.mh || 0,
       colour: b.c, clipped: !!b.clipped, zone,
+      roofColor: b.rc ? new THREE.Color().setRGB(b.rc[0] / 255, b.rc[1] / 255, b.rc[2] / 255, THREE.SRGBColorSpace) : null,
       outer, holes, bbox, area: Math.abs(signedArea(outer)), cx: c[0], cz: c[1],
       solid: b.t !== 'roof' && b.t !== 'carport' && !(b.mh > 2.5),
       height: 6, pois: [],

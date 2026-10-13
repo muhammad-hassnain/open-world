@@ -4,7 +4,7 @@ import { clamp, damp, lerp } from './util.js';
 // Stylized procedural person. Faces -Z at yaw 0; root sits at the feet.
 export class Character {
   constructor({ shirt = '#ff7a45', pants = '#34495e', skin = '#e8b48f', hair = '#2d1e16', shoes = '#f4f4f2', pack = '#1f4e8c' } = {}) {
-    const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+    const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75, envMapIntensity: 0.6 });
     const M = { shirt: mat(shirt), pants: mat(pants), skin: mat(skin), hair: mat(hair), shoes: mat(shoes), pack: mat(pack), eye: mat('#1d1d1f') };
     const part = (geom, m, x = 0, y = 0, z = 0) => {
       const mesh = new THREE.Mesh(geom, m);

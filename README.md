@@ -3,7 +3,7 @@
 An open world of the whole planet, built from real map data and explored on foot in third
 person. Spin the globe, search for any place, zoom in to a street and walk it: every road,
 building, park and shop comes from [OpenStreetMap](https://www.openstreetmap.org), generated in
-the browser in a clean, stylized look. It starts in downtown Davis, California, which has extra
+the browser with realistic materials. It starts in downtown Davis, California, which has extra
 detail.
 
 ![Standing on C Street next to Central Park in Davis](docs/images/davis.png)
@@ -21,11 +21,14 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
   **Walk here**. Press `G` to fly back out. The world streams in around you as you walk.
 - **Third-person character** with walk, run and jump animations, an over-the-shoulder camera
   that avoids walls, and collision with buildings, trees, lamps and parked cars.
-- **Streets from real data**: road widths fitted to the buildings around them, center lines,
-  stop lines, crosswalks, raised sidewalks with curbs, footpaths, bike paths, parks and water.
+- **Streets from real data**: road widths fitted to the buildings around them, cracked asphalt,
+  center lines, stop lines, crosswalks, concrete sidewalks with curbs, footpaths, bike paths,
+  parks, water, and parking lots with painted stalls.
 - **Buildings from real footprints**: real heights and colors where OpenStreetMap has them,
-  otherwise styles inferred from what's inside and the surrounding zone (houses, shops,
-  apartments, offices, warehouses, churches).
+  otherwise styles inferred from what's inside and the surrounding zone. Real materials (siding,
+  stucco, brick, concrete, corrugated metal; shingle, clay-tile and gravel roofs), gable and hip
+  roofs, porches, shutters, balconies, storefronts and awnings, varied building by building.
+- **Real roof colors in the US**: each roof's color is measured from USGS aerial photos.
 - **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars.
 - **Real places in any language**: shop, restaurant and building names as floating tags or
   physical signs (`L` switches), an info card when you walk up to a place, and a live
@@ -88,6 +91,8 @@ the data formats.
 index.html              Page, HUD and globe UI, styles, script/import map
 js/main.js              Boot, screens (globe/loading/street), input, HUD, game loop, spawning
 js/globe.js             MapLibre globe, place search and reverse geocoding (Nominatim)
+js/materials.js         Shared textured materials (CC0 textures in assets/textures)
+js/aerial.js            Roof colors sampled from USGS aerial imagery (US only)
 js/geo.js               Web Mercator tiles and the local metric frame around the walk-in point
 js/tiledata.js          Load a tile (vector or detail) and convert it to the common format
 js/mvt.js               Minimal Mapbox Vector Tile decoder
@@ -103,8 +108,10 @@ js/character.js         Procedural stylized character and its animation
 js/player.js            Movement, collision response, third-person camera
 js/util.js              Geometry helpers, spatial hash, mesh builder, time slicing
 data/detail/            Pre-built detailed tiles (downtown Davis)
+assets/textures/        CC0 material textures (see CREDITS.md there)
 server.py               Static file server (Python standard library only)
 tools/build_detail.py   Build detailed tiles from OpenStreetMap (Overpass API)
+tools/fetch_textures.py Download and prepare the material textures
 tools/screenshot.py     Headless screenshots for checking visual changes
 docs/                   Architecture, data formats, roadmap, images
 ```
@@ -127,6 +134,9 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
   Vector tiles by [OpenFreeMap](https://openfreemap.org) using the
   [OpenMapTiles](https://openmaptiles.org) schema. Search by [Nominatim](https://nominatim.org).
   The in-game credit lines must stay visible.
+- Material textures from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com),
+  CC0 ([list](assets/textures/CREDITS.md)). Roof colors from USGS/USDA orthoimagery
+  ([The National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map)), public domain.
 - Rendering by [three.js](https://threejs.org) (MIT) and [MapLibre GL JS](https://maplibre.org)
   (BSD), loaded from unpkg.
 - Code is released under the [MIT License](LICENSE).
