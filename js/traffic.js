@@ -379,8 +379,23 @@ export function buildLights(world, chunk, group) {
     group.add(mesh);
     lamps[color] = mesh;
   }
-  // Collide with the poles.
-  for (const h of heads) chunk.addCircleCollider(h.x, h.z, 0.15);
+  // Collide with the poles; hit at speed, a light falls over (and stays dark).
+  const tilt = new THREE.Quaternion(), yawQ = new THREE.Quaternion(), axis = new THREE.Vector3(), zero = new THREE.Vector3(0, 0, 0);
+  heads.forEach((h, i) => chunk.addCircleCollider(h.x, h.z, 0.15, {
+    onBreak: (dx, dz) => {
+      h.broken = true;
+      const l = Math.hypot(dx, dz) || 1;
+      axis.set(dz / l, 0, -dx / l);
+      tilt.setFromAxisAngle(axis, 1.4);
+      yawQ.setFromAxisAngle(up, h.yaw);
+      body.setMatrixAt(i, m.compose(new THREE.Vector3(h.x, h.y, h.z), tilt.multiply(yawQ), s));
+      body.instanceMatrix.needsUpdate = true;
+      for (const color of ['red', 'yellow', 'green']) {
+        lamps[color].setMatrixAt(i, m.compose(zero, q.identity(), zero));
+        lamps[color].instanceMatrix.needsUpdate = true;
+      }
+    },
+  }));
   return { heads, lamps };
 }
 

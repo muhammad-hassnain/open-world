@@ -216,8 +216,9 @@ export class ChunkIndex {
     return collider;  // set .off to remove it (a parked car someone drove away)
   }
 
-  addCircleCollider(x, z, r) {
-    this.circles.insert({ x, z, r }, x - r, z - r, x + r, z + r);
+  // extra: { onBreak(dx, dz) } makes it breakable (knocked down when a car hits it at speed).
+  addCircleCollider(x, z, r, extra = null) {
+    this.circles.insert({ x, z, r, ...extra }, x - r, z - r, x + r, z + r);
   }
 
   addRaised(ax, az, bx, bz, hw) {
@@ -522,6 +523,7 @@ export class World {
           }
         }
         if (!rough) for (const c of ch.circles.near(x, z, r + 0.5)) {
+          if (c.off) continue;
           const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), m = r + c.r;
           if (d < m) {
             const l = d || 1e-6;
@@ -532,6 +534,22 @@ export class World {
       if (!moved) break;
     }
     return [x, z];
+  }
+
+  // Knock down breakable things (traffic lights) a circle at (x, z) touches, moving along
+  // (dx, dz). Returns how many broke; onBreak(c) is told about each.
+  smash(x, z, r, dx, dz) {
+    let n = 0;
+    for (const ch of this.near(x, z, r + 0.5)) {
+      for (const c of ch.circles.near(x, z, r + 0.5)) {
+        if (!c.onBreak || c.off || Math.hypot(x - c.x, z - c.z) > r + c.r + 0.2) continue;
+        c.off = true;
+        c.onBreak(dx, dz);
+        if (this.onBreak) this.onBreak(c);
+        n++;
+      }
+    }
+    return n;
   }
 
   // The mapped area (park, wood, parking lot…) containing (x, z), or null.

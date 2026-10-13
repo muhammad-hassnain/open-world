@@ -50,7 +50,7 @@ export class Arcade {
     }
     const add = perSec * dt;
     this.total += add;
-    this._nitro(add / 1500);
+    this._nitro(add / 3000);
     if (!s) {
       const el = document.createElement('div');
       el.className = 'pop live';
@@ -69,9 +69,10 @@ export class Arcade {
     while (this.hud.pops.children.length > 5) this.hud.pops.lastChild.remove();
   }
 
+  // Nitrous fills from points, but never while it's being used.
   _nitro(x) {
     const v = this.vehicle;
-    if (v && v.kind === 'car') v.nitro = Math.min(1, (v.nitro || 0) + x);
+    if (v && v.kind === 'car' && !v.boosting) v.nitro = Math.min(1, (v.nitro || 0) + x);
   }
 
   // Police callbacks.
@@ -80,7 +81,8 @@ export class Arcade {
     this.cam = { v: u.v, t: 1.9, a: Math.random() * Math.PI * 2 };
   }
   escaped(heat) { this.award(1000 * Math.max(1, heat), 'ESCAPED', 0.5); }
-  spiked() { this.flash('Tires blown! Get to a gas station to repair'); }
+  spiked(how) { this.flash(`${how || 'Tires blown!'} Get to a gas station to repair`); }
+  smashed() { this.award(100, 'SMASHED', 0.03); }
 
   update(rawDt, player) {
     const dt = rawDt;
@@ -94,7 +96,7 @@ export class Arcade {
     if (this._saveT <= 0) { this._saveT = 3; try { localStorage.setItem(SP_KEY, String(Math.round(this.total))); } catch { /* storage unavailable */ } }
     if (!v) { for (const k of Object.keys(this.streak)) this._streak(k, '', 0, 0, false); this._render(null); return; }
 
-    v.nitro = Math.min(1, (v.nitro || 0) + dt * 0.012);  // trickles back slowly on its own
+    if (!v.boosting) v.nitro = Math.min(1, (v.nitro || 0) + dt * 0.006);  // trickles back slowly on its own
     const speed = Math.abs(v.speed), [fx, fz] = v.fwd;
 
     // Near misses: a car passes beside us (1-3 m) at speed without touching.
@@ -105,7 +107,7 @@ export class Arcade {
       const prev = this.passed.get(c);
       this.passed.set(c, along);
       if (prev !== undefined && prev > 0 && along <= 0 && lat > 1.1 && lat < 3.2 && speed > 12 && !(v.hit > 3)) {
-        this.award(250, 'NEAR MISS', 0.1);
+        this.award(250, 'NEAR MISS', 0.05);
       }
     }
     if (v.hit) v.hit = Math.max(0, v.hit - dt * 20);

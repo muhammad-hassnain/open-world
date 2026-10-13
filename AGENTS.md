@@ -228,7 +228,9 @@ in detail data.
   alternates two axes on a 36 s cycle; `signalState(sig, axis, t)` is the one source of truth for
   lamps and cars. Car models' handling is `CAR_MODELS` in `vehicles.js`.
 - Police units have `hp`; ramming (closing speed) and their own crashes damage them, and at 0
-  they're `wreck`ed (`onTakedown`). Spike strips (heat 3+) set `vehicle.flat` until a gas station.
+  they're `wreck`ed (`onTakedown`). Spike strips (heat 2+) and units right behind you for a few seconds (heat 2+, "shot out") set
+  `vehicle.flat` until a gas station. Chase units boost when more than 60 m away. Traffic light poles
+  are breakable circle colliders (`onBreak`, `world.smash`); car movement is substepped (0.5 m).
   Nitrous is `vehicle.nitro` (0..1) and `ctl.boost`; Shift while driving, the N₂O touch button.
 - Police units drive with `rough` collisions (only buildings and vehicles with a driver stop them)
   so they don't jam on parked cars and props, and are replaced when they stop getting closer out

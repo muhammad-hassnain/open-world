@@ -203,7 +203,8 @@ async function enterStreet(lat, lon, bearing = 0) {
     hud: { box: $('arcade'), points: $('sp-total'), nitro: $('arcade').querySelector('.nitro i'), pops: $('sp-pops') } });
   police.onTakedown = (u) => arcade.takedown(u);
   police.onEscape = (heat) => arcade.escaped(heat);
-  police.onSpiked = () => arcade.spiked();
+  police.onSpiked = (how) => arcade.spiked(how);
+  world.onBreak = () => arcade.smashed();
   if (speedCams) speedCams.dispose();
   if (races) races.dispose();
   const award = (pts, label, nitro) => arcade.award(pts, label, nitro);

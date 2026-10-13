@@ -17,10 +17,10 @@ const HEAT_AT = [0, 0, 60, 150, 270, 420];   // seconds of chase for heat 1..5
 const UNITS = [0, 2, 3, 4, 5, 6];
 const BUST_TIME = 3.5, BUST_R = 9;
 const cooldownFor = (heat) => 8 + heat * 2;  // seconds out of sight to drop one star
-const SEEN_CLOSE = 35;
+const SEEN_CLOSE = 35;                   // m: this close, they hear and see you around corners
 const UNIT_HP = 100;                    // ramming damage is about 3.5 per m/s of closing speed
-const SPIKE_EVERY = 26;
-const ACTIVE = (u) => u.mode === 'chase' || u.mode === 'block';  // not leaving or wrecked                 // s between spike strips at heat 3+                  // m: this close, they hear and see you around corners
+const SPIKE_EVERY = 26;                 // s between spike strips at heat 2+
+const ACTIVE = (u) => u.mode === 'chase' || u.mode === 'block';  // not leaving or wrecked
 const UNIT_TYPES = [null, ['police'], ['police'], ['police-suv', 'police'], ['interceptor', 'police-suv'], ['interceptor']];
 
 export class Police {
@@ -349,8 +349,22 @@ export class Police {
       if (u.stuckT > 1) { u.backT = 1.1; u.stuckT = 0; u.backDir = -Math.sign(ctl.throttle) || -1; u.backSteer = -ctl.steer || 1; }
       if (u.backT > 0) { u.backT -= dt; ctl = { throttle: u.backDir, steer: u.backSteer, brake: false }; }
     }
+    // Falling behind: units use nitrous to catch up (they're never out of it).
+    if (u.mode === 'chase') {
+      ctl.boost = far > 60 && ctl.throttle > 0;
+      v.nitro = 1;
+    }
     v.drive(dt, ctl, this.world);
     if (u.mode === 'chase') this.traffic.bump(v.x, v.z, 0);  // traffic it pushes through stops
+    // Right behind you with a clear view for a couple of seconds (heat 2+): they shoot out your tires.
+    const pv = player.vehicle;
+    if (u.mode === 'chase' && this.heat >= 2 && pv && pv.kind === 'car' && !pv.flat && far < 24 && this._los(v.x, v.z, p.x, p.z, 24)) {
+      u.aimT = (u.aimT || 0) + dt;
+      if (u.aimT > 2.5 && Math.random() < dt * 0.6) {
+        pv.flat = true; u.aimT = 0;
+        if (this.onSpiked) this.onSpiked('They shot out your tires!');
+      }
+    } else u.aimT = Math.max(0, (u.aimT || 0) - dt);
     v.flash(u.mode === 'chase', t);
   }
 
@@ -422,7 +436,7 @@ export class Police {
   }
 
   _spikeStrips(dt, player) {
-    if (this.heat < 3) return;
+    if (this.heat < 2) return;
     this.spikeT -= dt;
     if (this.spikeT > 0) return;
     this.spikeT = 3;
@@ -457,7 +471,7 @@ export class Police {
       const along = (v.x - sp.x) * sp.tx + (v.z - sp.z) * sp.tz, lat = (v.x - sp.x) * -sp.tz + (v.z - sp.z) * sp.tx;
       if (Math.abs(along) < 1.6 && Math.abs(lat) < sp.hw) {
         v.flat = true;
-        if (this.onSpiked) this.onSpiked();
+        if (this.onSpiked) this.onSpiked('Spike strip! Tires blown.');
       }
     }
   }

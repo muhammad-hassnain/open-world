@@ -310,7 +310,7 @@ export class Vehicle {
     const thr = clamp(ctl.throttle || 0, -1, 1);
     // Nitrous: 30% more top speed and twice the pull while it lasts (about 4 s from full).
     this.boosting = !!ctl.boost && thr > 0 && this.kind === 'car' && this.nitro > 0 && this.speed > 2;
-    if (this.boosting) this.nitro = Math.max(0, this.nitro - dt / 4);
+    if (this.boosting) this.nitro = Math.max(0, this.nitro - dt / 3.5);
     // Blown tires (spike strips): about half the speed until repaired.
     const top = P.maxFwd * (this.boosting ? 1.3 : 1) * (this.flat ? 0.55 : 1);
     const target = thr > 0 ? thr * top : thr < 0 ? thr * P.maxRev : 0;
@@ -331,13 +331,21 @@ export class Vehicle {
     this.yawRate = yawRate;
 
     const [fx, fz] = this.fwd;
-    let x = this.x + fx * this.speed * dt, z = this.z + fz * this.speed * dt;
-    // Collisions: push each footprint circle out of buildings and obstacles.
-    let cx = 0, cz = 0, n = 0;
-    for (const o of P.circles) {
-      const px = x + fx * o, pz = z + fz * o;
-      const [qx, qz] = world.resolveCircle(px, pz, this.rough ? P.r * 0.8 : P.r, this, this.rough);
-      if (Math.abs(qx - px) + Math.abs(qz - pz) > 1e-4) { cx += qx - px; cz += qz - pz; n++; }
+    // Move in steps of at most 0.5 m so fast cars can't skip through thin walls. Collisions push
+    // each footprint circle out of buildings and obstacles; at speed, traffic lights break.
+    const move = this.speed * dt, steps = Math.max(1, Math.ceil(Math.abs(move) / 0.5));
+    let x = this.x, z = this.z, cx = 0, cz = 0, n = 0;
+    for (let st = 0; st < steps && !n; st++) {
+      x += (fx * move) / steps; z += (fz * move) / steps;
+      if (Math.abs(this.speed) > 6 && this.kind === 'car') {
+        const nose = P.circles[P.circles.length - 1] * Math.sign(this.speed);
+        if (world.smash(x + fx * nose, z + fz * nose, P.r, fx * Math.sign(this.speed), fz * Math.sign(this.speed))) this.speed *= 0.85;
+      }
+      for (const o of P.circles) {
+        const px = x + fx * o, pz = z + fz * o;
+        const [qx, qz] = world.resolveCircle(px, pz, this.rough ? P.r * 0.8 : P.r, this, this.rough);
+        if (Math.abs(qx - px) + Math.abs(qz - pz) > 1e-4) { cx += qx - px; cz += qz - pz; n++; }
+      }
     }
     if (n) {
       this.hitNow = Math.max(this.hitNow || 0, Math.abs(this.speed));  // for police.js (crashes)
