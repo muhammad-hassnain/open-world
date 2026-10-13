@@ -6,9 +6,11 @@ import { clamp, damp, lerp } from './util.js';
 // The looks players can choose. Models from Quaternius' "Ultimate Modular Men" and "Ultimate
 // Modular Women" packs (CC0), packed by tools/pack_character.py. height: meters tall in game;
 // walk / run: ground speed (m/s, at the model's own 1.8 m size) at which that cycle's feet don't slide.
+// Browsers keep files under assets/ for a day: bump MODEL_VERSION whenever a model file changes.
+const MODEL_VERSION = 2;
 export const LOOKS = {
-  man: { label: 'Man', file: 'assets/characters/man.glb', height: 1.78, walk: 1.6, run: 3.35 },
-  woman: { label: 'Woman', file: 'assets/characters/woman.glb', height: 1.68, walk: 1.3, run: 2.7 },
+  man: { label: 'Man', file: `assets/characters/man.glb?v=${MODEL_VERSION}`, height: 1.78, walk: 1.6, run: 3.35 },
+  woman: { label: 'Woman', file: `assets/characters/woman.glb?v=${MODEL_VERSION}`, height: 1.68, walk: 1.3, run: 2.7 },
 };
 const MODEL_HEIGHT = 1.8;
 

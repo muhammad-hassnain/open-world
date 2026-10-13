@@ -184,6 +184,9 @@ in detail data.
 - Terrain is a bare-earth model from 30 m (most of the world) to 3–10 m (US) data. Bridges and
   overpasses aren't in it and still follow the ground; tunnels are skipped. Hilly chunks have
   about 40% more triangles because the ground is subdivided to 5 m; flat chunks use 40 m.
+- Files under `assets/` are cached by browsers for a day (`vercel.json`). When you replace one
+  in place (same name), bump its version in the URL (`MODEL_VERSION` in `js/character.js` for
+  characters) or players keep seeing the old file.
 - Roof colors need the USGS imagery export (US only); it adds a few seconds to the first load of
   each tile and has a 10 s timeout, after which roofs keep generated colors.
 - Place photos use the regular MediaWiki APIs (Wikidata `list=search` with `nearcoord:` and
