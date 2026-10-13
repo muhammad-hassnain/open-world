@@ -20,7 +20,6 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - **The whole world.** A 3D globe with place search; zoom in to any street and press
   **Walk here**. Press `G` to fly back out. The world streams in around you as you walk.
   If you share your location, you start on the street where you are.
-  If you share your location, you start on the street where you are.
 - **Third-person character** with walk, run, sprint and jump animations, an over-the-shoulder camera
   that avoids walls, and collision with buildings, trees, lamps and parked cars.
 - **Real terrain**: streets, buildings and parks follow the ground, so San Francisco's hills
@@ -38,9 +37,6 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Real places in any language**: shop, restaurant and building names as floating tags or
   physical signs (`L` switches), an info card when you walk up to a place, and a live
   "where am I" bar with the street, cross street and neighborhood.
-- **Photos of real places**: walk up to a landmark and its photos from
-  [Wikimedia Commons](https://commons.wikimedia.org) appear on the info card; press `P` (or tap
-  the card) to browse them, each with its author and license.
 - **Photos of real places**: walk up to a landmark and its photos from
   [Wikimedia Commons](https://commons.wikimedia.org) appear on the info card; press `P` (or tap
   the card) to browse them, each with its author and license.
@@ -78,7 +74,7 @@ the address bar keeps your current position so you can share it.
 | Zoom camera | Mouse wheel |
 | Labels: tags → signs → off | `L` |
 | Photos of the place you're at | `P` |
-| Photos of the place you're at | `P` |
+| About, credits and the GitHub link | `I` (also on the pause screen and the globe) |
 | Map of where you are (pick a spot to walk to) | `M` |
 | Fly out to the globe | `G` |
 | Respawn where you walked in | `R` |
@@ -124,7 +120,6 @@ js/streets.js           Ground, areas, roads, markings, crosswalks, sidewalks, f
 js/buildings.js         Building styles, heights, facades, roofs
 js/props.js             Trees, lamps, benches, bike racks, hydrants, parked cars (instanced)
 js/labels.js            Place labels: floating tags, 3D signs, street signs, info-card lookup
-js/photos.js            Photos of places from Wikimedia Commons (matched through Wikidata)
 js/photos.js            Photos of places from Wikimedia Commons (matched through Wikidata)
 js/minimap.js           Rotating minimap from per-chunk canvases
 js/character.js         Procedural stylized character and its animation
@@ -172,9 +167,6 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
 - Elevation from [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS (Mapzen;
   USGS 3DEP, SRTM, GMTED2010, ETOPO1, EU-DEM and national datasets); the full required
   attribution is in [docs/DATA.md](docs/DATA.md#elevation).
-- Place photos from [Wikimedia Commons](https://commons.wikimedia.org), each under its own
-  license with its author credited in the game; places are matched through
-  [Wikidata](https://www.wikidata.org) (CC0).
 - Place photos from [Wikimedia Commons](https://commons.wikimedia.org), each under its own
   license with its author credited in the game; places are matched through
   [Wikidata](https://www.wikidata.org) (CC0).

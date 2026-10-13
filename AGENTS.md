@@ -73,7 +73,6 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/props.js` | Shared, instanced trees, lamps, benches, bike racks, hydrants, bins, parked cars |
 | `js/labels.js` | Per-chunk place items, sign placement, street-sign corners, floating tags, lazy 3D signs |
 | `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
-| `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
 | `js/character.js`, `js/player.js` | Character model/animation; movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
 | `js/touch.js` | `TouchControls`: joystick fixed in a bottom corner (held all the way locks a sprint that continues after release until the stick is touched again), look anywhere else, pinch zoom, Jump in the other corner; `setSide('left' \| 'right')` (saved in localStorage); adds `body.touch` / `body.stick-right` |
@@ -182,11 +181,6 @@ in detail data.
 - Place photos use the regular MediaWiki APIs (Wikidata `list=search` with `nearcoord:` and
   `haswbstatement:P18`, then `wbgetentities`, then Commons `imageinfo`), not the Wikidata Query
   Service, which rate-limits hard. Every photo shown must carry its author and license.
-- The start-at-your-location prompt (geolocation) only exists on https and localhost, so it
-  never appears over a plain-http Tailscale address.
-- Place photos use the regular MediaWiki APIs (Wikidata `list=search` with `nearcoord:` and
-  `haswbstatement:P18`, then `wbgetentities`, then Commons `imageinfo`), not the Wikidata Query
-  Service, which rate-limits hard.
 - The start-at-your-location prompt (geolocation) only exists on https and localhost, so it
   never appears over a plain-http Tailscale address.
 - Nominatim allows about one request per second; search only runs on submit and reverse

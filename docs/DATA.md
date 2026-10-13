@@ -13,9 +13,6 @@ All map data comes from [OpenStreetMap](https://www.openstreetmap.org) and is
 Elevation is separate from the map data; see [Elevation](#elevation). Place photos come live
 from [Wikimedia Commons](https://commons.wikimedia.org), matched to places through
 [Wikidata](https://www.wikidata.org); each photo keeps its own license and is shown with its
-author and license. Place photos come live
-from [Wikimedia Commons](https://commons.wikimedia.org), matched to places through
-[Wikidata](https://www.wikidata.org); each photo keeps its own license and is shown with its
 author and license.
 
 Both map sources are converted to the **common format** below, with coordinates in tile units

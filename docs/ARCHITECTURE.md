@@ -24,9 +24,6 @@ Everything runs in the browser. `serve.py` serves static files; it has no data l
 - **Start:** a `#lat,lon` link or `?at=` walks straight in. Otherwise the globe opens and the
   browser asks for the device's location; if it's shared (and the player hasn't started
   exploring the globe meanwhile) the street world opens there, else the globe flies to Davis.
-- **Start:** a `#lat,lon` link or `?at=` walks straight in. Otherwise the globe opens and the
-  browser asks for the device's location; if it's shared (and the player hasn't started
-  exploring the globe meanwhile) the street world opens there, else the globe flies to Davis.
 
 ## Coordinates
 
@@ -158,16 +155,6 @@ grid. Main queries:
 - **Labels** (`labels.js`): per chunk; wall signs on street-facing walls, lawn signs for houses,
   post signs for parks and free-standing places, green street-name blades at intersections;
   floating HTML tags with occlusion and declutter; modes tags/signs/off.
-
-## Place photos (`photos.js`)
-
-When the info card shows a named place, `placePhotos` looks for its Wikidata item: a full-text
-search for the name limited to items with an image (P18) within 300 m (`nearcoord:`), then a
-check that one of the item's labels or aliases, in any language, equals the name after
-normalizing case and punctuation. Its main image and up to seven more from its Commons category
-(P373) come from the Commons `imageinfo` API with author and license. Places without a match
-(most shops and cafés) show no photo. Results are cached per place for the session. The card
-shows the first photo and its credit; `P` (or tapping the card) opens a full-screen viewer.
 
 ## Place photos (`photos.js`)
 

@@ -429,6 +429,7 @@ function openAbout() {
 function closeAbout() { $('about').classList.add('hidden'); }
 $('about-btn').addEventListener('click', openAbout);
 $('globe-about').addEventListener('click', openAbout);
+$('intro-about').addEventListener('click', openAbout);
 $('about-close').addEventListener('click', closeAbout);
 $('about').addEventListener('click', (e) => { if (e.target === $('about')) closeAbout(); });
 $('ph-close').addEventListener('click', closePhotos);
@@ -442,6 +443,7 @@ actions.KeyL = () => { if (labels) { labels.cycle(); flash(`Labels: ${labels.mod
 actions.KeyR = () => { if (player && spawn) { player.spawn(spawn.x, spawn.z, spawn.yaw); flash('Back to where you started'); } };
 actions.KeyM = () => openGlobe('map');
 actions.KeyP = openPhotos;
+actions.KeyI = openAbout;
 actions.KeyG = () => openGlobe('globe');
 
 // ---------- loop ----------
