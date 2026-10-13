@@ -1,31 +1,38 @@
-// Touch controls for phones and tablets: a floating joystick that appears under the thumb on the
-// left half of the screen (hold it pushed all the way to lock into a sprint, which keeps going
-// after you let go until you touch the left half again), drag on the right half to look and
-// steer, pinch to zoom the camera, and a Jump button. Turned on by the first touch, so
-// touch-screen laptops get them too.
+// Touch controls for phones and tablets: a joystick fixed in a bottom corner (hold it pushed all
+// the way to lock into a sprint, which keeps going after you let go until you touch the stick
+// again), drag anywhere else to look and steer, pinch to zoom the camera, and a Jump button in
+// the other corner. The joystick can be on the left (default) or the right. Turned on by the
+// first touch, so touch-screen laptops get them too.
 import { clamp } from './util.js';
 
-const STICK_R = 52;        // px the knob can travel from the stick's center
+const STICK_X = 100;       // px from the side edge to the stick's center
+const STICK_Y = 112;       // px from the bottom edge to the stick's center
+const STICK_R = 52;        // px the knob can travel from the center
+const ZONE = 95;           // a touch starting this close to the center grabs the stick
 const DEAD = 0.12;         // stick fraction ignored around the center
 const WALK_ZONE = 0.55;    // up to here the stick sets walking speed; beyond it blends into a run
-const LOOK_SENS = 0.006;   // radians per px dragged
-const PINCH_SENS = 0.03;   // camera meters per px of pinch
 const FULL = 0.9;          // stick fraction that counts as pushed all the way
 const SPRINT_HOLD = 900;   // ms pushed all the way before the sprint locks in
-const SPRINT_KEEP = 0.5;   // a locked sprint lasts until the stick eases back below this
+const SPRINT_KEEP = 0.5;   // while held, a locked sprint lasts until the stick eases back below this
+const LOOK_SENS = 0.006;   // radians per px dragged
+const PINCH_SENS = 0.03;   // camera meters per px of pinch
+const SIDE_KEY = 'openworld.stickSide';
 
 export class TouchControls {
-  // surface: element that receives look/stick touches (the canvas).
-  // ui: { stick, knob, jump } elements.
+  // surface: element that receives stick/look touches (the canvas).
+  // ui: { stick, knob, jump, sideButtons } elements; sideButtons have data-side="left|right".
   constructor(surface, ui) {
     this.ui = ui;
     this.enabled = false;
     this.onEnable = null;
-    this.stick = null;          // { id, ox, oy, dx, dy, fullSince, sprint, auto }
+    this.stick = null;          // { id, dx, dy, fullSince, sprint, auto }
     this.looks = new Map();     // pointerId -> { x, y }
     this.pinch = 0;             // last distance between two look touches
     this.lookX = 0; this.lookY = 0; this.zoom = 0;
     this.jump = false;
+    let side = 'left';
+    try { side = localStorage.getItem(SIDE_KEY) || side; } catch { /* storage unavailable */ }
+    this.setSide(side, false);
 
     surface.addEventListener('pointerdown', (e) => this._down(e, surface));
     surface.addEventListener('pointermove', (e) => this._move(e));
@@ -33,8 +40,8 @@ export class TouchControls {
     surface.addEventListener('pointercancel', (e) => this._up(e));
     window.addEventListener('touchstart', () => this.enable(), { passive: true });
     window.addEventListener('resize', () => this._drawStick());
-    const press = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); fn(); });
-    press(ui.jump, () => { this.jump = true; });
+    ui.jump.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.jump = true; });
+    for (const b of ui.sideButtons) b.addEventListener('click', () => this.setSide(b.dataset.side));
   }
 
   enable() {
@@ -43,6 +50,15 @@ export class TouchControls {
     document.body.classList.add('touch');
     this._drawStick();
     if (this.onEnable) this.onEnable();
+  }
+
+  // Joystick in the bottom-left ('left') or bottom-right ('right') corner; Jump in the other.
+  setSide(side, save = true) {
+    this.side = side === 'right' ? 'right' : 'left';
+    document.body.classList.toggle('stick-right', this.side === 'right');
+    for (const b of this.ui.sideButtons) b.classList.toggle('on', b.dataset.side === this.side);
+    if (save) { try { localStorage.setItem(SIDE_KEY, this.side); } catch { /* storage unavailable */ } }
+    this._drawStick();
   }
 
   // Input for this frame; look, zoom and jump are consumed.
@@ -55,7 +71,7 @@ export class TouchControls {
       out.right = s.dx; out.fwd = -s.dy; out.gait = 2;
     } else if (s) {
       const m = Math.min(1, Math.hypot(s.dx, s.dy));
-      // Held all the way for a moment: lock into a sprint until the stick eases back.
+      // Held all the way for a moment: lock into a sprint.
       const now = performance.now();
       if (m < FULL) s.fullSince = 0; else if (!s.fullSince) s.fullSince = now;
       const sprint = m >= SPRINT_KEEP && (s.sprint || (s.fullSince > 0 && now - s.fullSince > SPRINT_HOLD));
@@ -77,35 +93,38 @@ export class TouchControls {
     this._drawStick();
   }
 
+  _center() {
+    return { x: this.side === 'right' ? window.innerWidth - STICK_X : STICK_X, y: window.innerHeight - STICK_Y };
+  }
+
   _down(e, surface) {
     if (e.pointerType === 'mouse') return;
     this.enable();
     e.preventDefault();  // no emulated mouse events (they would start pointer lock)
     surface.setPointerCapture(e.pointerId);
-    if (e.clientX < window.innerWidth / 2 && (!this.stick || this.stick.auto)) {
-      // A new stick; touching while a locked sprint runs on its own stops it.
-      this.stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0, fullSince: 0, sprint: false, auto: false };
-      this._drawStick();
+    const c = this._center();
+    const onStick = Math.hypot(e.clientX - c.x, e.clientY - c.y) < ZONE;
+    if (onStick && (!this.stick || this.stick.auto)) {
+      // Grab the stick; touching it while a locked sprint runs on its own stops the sprint.
+      this.stick = { id: e.pointerId, dx: 0, dy: 0, fullSince: 0, sprint: false, auto: false };
+      this._aim(e);
     } else {
       this.looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.pinch = this._pinchDist();
     }
   }
 
+  _aim(e) {
+    const c = this._center(), s = this.stick;
+    let dx = (e.clientX - c.x) / STICK_R, dy = (e.clientY - c.y) / STICK_R;
+    const m = Math.hypot(dx, dy);
+    if (m > 1) { dx /= m; dy /= m; }
+    s.dx = dx; s.dy = dy;
+    this._drawStick();
+  }
+
   _move(e) {
-    const s = this.stick;
-    if (s && e.pointerId === s.id) {
-      let dx = e.clientX - s.ox, dy = e.clientY - s.oy;
-      const d = Math.hypot(dx, dy);
-      if (d > STICK_R) {
-        // Drag the stick along so it stays under the thumb.
-        s.ox += dx * (1 - STICK_R / d); s.oy += dy * (1 - STICK_R / d);
-        dx *= STICK_R / d; dy *= STICK_R / d;
-      }
-      s.dx = dx / STICK_R; s.dy = dy / STICK_R;
-      this._drawStick();
-      return;
-    }
+    if (this.stick && e.pointerId === this.stick.id) { this._aim(e); return; }
     const p = this.looks.get(e.pointerId);
     if (!p) return;
     if (this.looks.size === 1) {
@@ -125,7 +144,7 @@ export class TouchControls {
     if (s && e.pointerId === s.id) {
       const m = Math.hypot(s.dx, s.dy);
       if (s.sprint && m > 0) {
-        // Let go during a locked sprint: it keeps going until the next touch on the stick side.
+        // Let go during a locked sprint: it keeps going until the stick is touched again.
         Object.assign(s, { id: null, auto: true, dx: s.dx / m, dy: s.dy / m });
       } else {
         this.stick = null;
@@ -142,11 +161,9 @@ export class TouchControls {
     return Math.hypot(a.x - b.x, a.y - b.y);
   }
 
-  // Idle: a faint stick in the bottom-left corner shows where to put your thumb.
   _drawStick() {
-    const s = this.stick, { stick, knob } = this.ui;
-    const x = s ? s.ox : 96, y = s ? s.oy : window.innerHeight - 120;
-    stick.style.transform = `translate(${x}px, ${y}px)`;
+    const s = this.stick, { stick, knob } = this.ui, c = this._center();
+    stick.style.transform = `translate(${c.x}px, ${c.y}px)`;
     stick.classList.toggle('active', !!s);
     stick.classList.toggle('sprint', !!(s && s.sprint));
     knob.style.transform = s ? `translate(${s.dx * STICK_R}px, ${s.dy * STICK_R}px)` : '';

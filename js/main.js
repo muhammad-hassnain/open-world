@@ -32,7 +32,9 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 $('world').appendChild(renderer.domElement);
-const touch = new TouchControls(renderer.domElement, { stick: $('stick'), knob: $('stick-knob'), jump: $('btn-jump') });
+const touch = new TouchControls(renderer.domElement, {
+  stick: $('stick'), knob: $('stick-knob'), jump: $('btn-jump'), sideButtons: document.querySelectorAll('#stick-side button'),
+});
 if (MOBILE) touch.enable();
 
 const HORIZON = new THREE.Color('#dce8f2');

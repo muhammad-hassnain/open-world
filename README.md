@@ -84,10 +84,10 @@ the address bar keeps your current position so you can share it.
 | Respawn where you walked in | `R` |
 | Pause / release mouse | `Esc` |
 
-On phones and tablets: put your thumb anywhere on the left half of the screen for a joystick
-(push further to run; hold it all the way for a moment to lock into a sprint, which keeps going
-after you let go until you touch the joystick again), drag on the right half to look and steer,
-pinch to zoom, and tap **Jump**.
+On phones and tablets: the joystick sits in the bottom-left corner (push further to run; hold it
+all the way for a moment to lock into a sprint, which keeps going after you let go until you
+touch the joystick again), drag anywhere else to look and steer, pinch to zoom, and tap **Jump**.
+Left-handed? **About → Joystick: Right** swaps the joystick and Jump.
 
 ## How it works
 
@@ -129,7 +129,7 @@ js/photos.js            Photos of places from Wikimedia Commons (matched through
 js/minimap.js           Rotating minimap from per-chunk canvases
 js/character.js         Procedural stylized character and its animation
 js/player.js            Movement, collision response, third-person camera
-js/touch.js             Touch controls: floating joystick with sprint lock, look, pinch zoom, Jump
+js/touch.js             Touch controls: fixed joystick with sprint lock, look, pinch zoom, Jump
 js/util.js              Geometry helpers, spatial hash, mesh builder, time slicing
 data/detail/            Pre-built detailed tiles (downtown Davis)
 assets/textures/        CC0 material textures (see CREDITS.md there)
