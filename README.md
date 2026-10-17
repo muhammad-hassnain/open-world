@@ -1,99 +1,97 @@
 # Open World
 
-An open world of the whole planet, built from real map data and explored on foot in third
-person. Spin the globe, search for any place, zoom in to a street and walk it: every road,
-building, park and shop comes from [OpenStreetMap](https://www.openstreetmap.org), generated in
-the browser with realistic materials. It starts in downtown Davis, California, which has extra
-detail.
+A third-person browser game built from real map data. Walk, run, cycle or drive through
+neighborhoods generated from [OpenStreetMap](https://www.openstreetmap.org), enriched with
+Overture Maps places and buildings, and shaped by real terrain. Pick a place on the globe;
+streets stream in as you explore, with traffic, pedestrians, live weather, police chases
+and races along real roads.
+
+The geography comes from open data; building details, scenery and game events are generated.
+Downtown Davis, California is the default starting point and has extra mapped detail.
+
+**[Play in your browser](https://open-world-sigma-two.vercel.app)** ·
+[Run locally](#quick-start) · [Controls](#controls) · [Graphics](#graphics-and-performance)
 
 ![Standing on C Street next to Central Park in Davis](docs/images/davis.png)
 
-| Go anywhere from the globe | Paris, Le Marais | Storefront and street signs in Davis |
+| Go anywhere from the globe | Paris, Le Marais | Davis after dark |
 | --- | --- | --- |
-| ![Globe](docs/images/globe.png) | ![Paris](docs/images/paris.png) | ![Signs mode at B & 3rd Street](docs/images/signs.png) |
+| ![Globe](docs/images/globe.png) | ![Textured avatar on Rue des Francs Bourgeois in Paris](docs/images/paris.png) | ![Street lamps, foliage and night lighting in Davis](docs/images/night.png) |
 
 Where it's going: more realistic places as people contribute real photos and video, and more
 detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features
 
-- **The whole world.** A 3D globe with place search; zoom in to any street and press
-  **Walk here**. Press `G` to fly back out. The world streams in around you as you walk.
-  If you share your location, you start on the street where you are.
-- **Third-person character**: pick a name and one of four textured characters, with walk, jog, run, sprint
-  and jump animations, an over-the-shoulder camera
-  that avoids walls, and collision with buildings, trees, lamps and parked cars.
-- **Real terrain**: streets, buildings and parks follow the ground, so San Francisco's hills
-  climb and Montmartre rises to Sacré-Cœur. Elevation comes from open terrain tiles covering
-  the whole planet. Beyond the streets, low-detail land and sea reach out about 20 km, and the
-  haze lifts when you're high up, so from a summit you see the landscape and the sunset over the
-  water.
-- **Streets from real data**: road widths fitted to the buildings around them, cracked asphalt,
-  center lines, stop lines, crosswalks, concrete sidewalks with curbs, footpaths, bike paths,
-  parks, water, and parking lots with painted stalls.
-- **Buildings from real footprints**: real heights and colors where OpenStreetMap has them,
-  otherwise styles inferred from what's inside and the surrounding zone. Real materials (siding,
-  stucco, brick, concrete, corrugated metal; shingle, clay-tile and gravel roofs), gable and hip
-  roofs, porches, shutters, balconies, storefronts and awnings, varied building by building.
-- **Real roof colors in the US**: each roof's color is measured from USGS aerial photos.
-- **Cars and bikes**: press `V` for your car or `B` for your bike (or tap Car / Bike), `F` to
-  get in, and drive with `W` `A` `S` `D`; you can also get into any parked car or a car from
-  traffic. Six car models drive differently (a sports hatchback up to 144 km/h, a slow van that
-  leans in corners); `V` again next to your car swaps the model. Realistic acceleration, speed
-  limits by road type (25 mph on residential streets and 65 mph on highways in the US, km/h
-  limits elsewhere) shown next to the speedometer, real hills, collisions, and other players see
-  you driving.
-- **Traffic**: about 20 cars drive the streets around you, keep their distance, slow down at
-  junctions and stop at traffic lights, which cycle where OpenStreetMap maps them (or where
-  main roads cross).
-- **Driving effects**: hard braking leaves fading tire tracks and smoke on roads, including
-  hills and bridge decks. Headlights, street lamps and flashing police lights have soft halos
-  that disappear behind buildings. Rain kicks up tire spray, unpaved ground raises dust, and
-  impacts throw small sparks. Effects use fixed pools with lower limits on mobile.
-- **Car physics**: four tire contacts share grip between braking and cornering; mass, rotational
-  inertia, spring/damper suspension and weight transfer produce understeer and oversteer.
-  Cars have different front, rear or all-wheel drive, five automatic gears, engine braking,
-  drag, and rolling resistance. Hills, rain, snow, dirt and damaged tires change handling.
-  The rear handbrake can spin the car; recovery requires easing off or countersteering.
-- **Driving feel and sound**: the camera looks slightly ahead, and holding `C` looks behind.
-  Engine pitch follows the drivetrain's RPM and tire squeal follows lost grip. Synthesized tire,
-  impact, horn (`H`), footstep and rain sounds share the `N` sound toggle. Traffic brakes earlier
-  for stopped cars and occasionally honks when blocked, without honking at red lights.
-- **Real time and weather**: the sun is where it really is at that place and time (sunsets,
-  starry nights with lit windows, street lamps and headlights), and the weather is live from
-  Open-Meteo: clouds, rain on wet streets, snow, fog and thunderstorms. `T` and `Y` (or About)
-  switch to a fixed time of day or weather.
-- **Police chases**: patrol cars notice speeding, red lights, crashes and driving on sidewalks or
-  through parks. Escape them and the heat rises: more units, police SUVs, then interceptors and
-  roadblocks. Get boxed in and you're busted (your car is impounded); stay out of sight until the
-  cooldown fills and you escape. Sirens are made in the browser; `N` mutes them.
-- **Other players**: everyone online nearby shows up with their name and character, live. You
-  start hidden if you began at your own location; `O` (or the Online button) shows or hides you.
-- **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars, plus a
-  small local population of strollers, commuters, walkers and joggers on verified sidewalks
-  and paths (up to eight, four on mobile). Four character bases have varied clothing colors,
-  proportions, walking speeds and independent animations. Walkers continue around corners,
-  keep personal space and react to nearby cars. Nearby water has wind-driven moving reflections.
-- **Textured trees**: branching trunks with photographic bark and cutout leaves/needles,
-  six broadleaf, columnar and conifer shapes, and wind-driven foliage with matching shadows.
-  Distant trees use simpler meshes; phones use a smaller detail radius.
-- **Adaptive graphics**: automatic resolution aims for 40+ fps while keeping detailed models,
-  textures and shadows. The interface stays sharp. Choose Auto or Full resolution in About;
-  actual performance depends on the device and location. Compact scenery buffers, shared
-  textures and bounded terrain caches reduce memory use.
-- **Real places in any language**: shop, restaurant and building names as floating tags or
-  physical signs (`L` switches), an info card when you walk up to a place, and a live
-  "where am I" bar with the street, cross street and neighborhood.
-- **Photos of real places**: walk up to a landmark and its photos from
-  [Wikimedia Commons](https://commons.wikimedia.org) appear on the info card; press `P` (or tap
-  the card) to browse them, each with its author and license.
-- **Extra detail where it's been built**: selected areas (downtown Davis today) use richer
-  OpenStreetMap data with mapped sidewalks, crosswalks, trees, benches and opening hours.
+### Explore real places
+
+- **Go anywhere:** search the globe, zoom in and select **Walk here**. Streets stream around
+  you as you move. You can also start at your location or share a latitude/longitude link.
+- **Terrain, streets and buildings:** hills, bridge decks, sidewalks, crosswalks, bike paths,
+  parks and parking lots follow the mapped world. Buildings use real footprints and available
+  heights, with generated facades, roofs, balconies and storefronts. USGS aerial imagery
+  supplies roof colors in the US when available. Distant land and sea extend about 20 km.
+- **Places and photos:** multilingual tags or physical signs, street names, nearby place
+  information and credited Wikimedia Commons photos. Overture adds places and building
+  footprints; downtown Davis also has richer pre-built OSM detail.
+- **Navigation:** open the map with `M`, center it on a destination and select **Drive here**
+  for OSRM directions, lane guidance, distance, ETA and automatic rerouting. The route appears
+  on the map and minimap. Roadside guide signs and route shields use available Overture data.
+- **Nearby players:** see other online players' names, avatars and vehicles. `O` controls
+  visibility; starting at your own location leaves you hidden by default.
+
+### Drive and play
+
+- **Six cars and a bicycle:** summon your own, enter a parked car or take one from traffic.
+  Cars have different masses, suspension and front, rear or all-wheel drive. Bikes lean into
+  turns, with the rider's hands on the grips and feet following the pedals. The speedometer
+  shows the road's speed limit, with mph or km/h chosen for the region or set manually.
+- **Tire and suspension physics:** four wheel contacts share grip between acceleration,
+  braking and cornering. Weight transfer produces body roll, braking dive and acceleration
+  squat; suspension handles crests and landings. Five automatic gears, engine braking, drag,
+  slope gravity and weather affect handling. Cars can understeer, oversteer and spin, and
+  off-centre collisions turn them. The car simulation runs at 120 Hz independently of rendering.
+- **Traffic and police:** nearby traffic anticipates obstacles, keeps gaps, obeys traffic
+  lights and sometimes honks when blocked. Police react to observed driving offences;
+  prolonged pursuits bring tougher units, roadblocks, spike strips and damaged tires.
+  Stay out of sight to lose heat, or risk being boxed in and losing your car.
+- **Races and speed challenges:** slow down near a race beacon while not wanted to start a
+  sprint or two-lap circuit against three AI rivals. Generated speed cameras record passing
+  speed; speed zones measure the average between gates. Personal bests stay in your browser.
+- **Speed Points and nitrous:** earn points and combo bonuses for near misses, drifts,
+  oncoming driving, top speed, police takedowns and escapes. Hold `Shift` for limited nitrous;
+  driving awards help refill it. Mapped gas stations repair tires, refill nitrous and respray
+  the car, reducing heat when police have lost sight of you.
+- **Driving feedback:** tire slip produces skid marks, smoke and squeal; wet roads throw spray,
+  natural ground raises dust, and impacts spark. Engine sound follows RPM and load. The camera
+  looks ahead with speed, `C` gives a rear view, and `H` sounds the horn. Headlight and police
+  light halos respect viewing direction and obstructions.
+
+### People, scenery and atmosphere
+
+- **Four textured avatars:** choose Sam, Maya, Harper or Jordan and a player name. Walking,
+  jogging and sprinting blend with speed, with opposite arm/leg swing, narrower strides,
+  forward-bending knees and heel-to-toe motion. Footsteps follow ground contact.
+- **Pedestrian variety:** strollers, commuters, walkers and joggers vary in clothing, build,
+  pace and pauses. Up to eight nearby pedestrians (four on mobile) follow sidewalks and paths,
+  turn corners, yield, pass one another and react to approaching cars.
+- **Contact with the ground:** feet adapt individually to slopes and curbs; tires use their
+  size, steering and suspension travel to meet the rendered road. Traffic and parked cars
+  follow road pitch and cross-slope, including hills and supported bridge decks.
+- **Trees and water:** six broadleaf, columnar and conifer forms with textured bark, branching
+  trunks, roots and leaves or needles. Wind moves foliage and its shadows, and drives ripples
+  and reflections on water. Streets also have lamps, benches, bike racks and hydrants.
+- **Time and weather:** the sun follows the location and real time, with sunsets, stars,
+  illuminated windows and night lighting. Open-Meteo conditions refresh every 15 minutes,
+  driving clouds, rain, snow, fog and storms. `T` and `Y` select time and weather presets.
+- **Adaptive graphics:** automatic resolution targets 45 fps while retaining model, texture
+  and shadow detail. Shared resources, compact meshes, distance detail and less work on
+  off-screen objects reduce rendering cost and memory use. See [graphics settings](#graphics-and-performance).
 
 ## Quick start
 
-Requirements: Python 3.9+ and a browser with WebGL 2. There is no build step and nothing to
-install.
+Requirements: Python 3.9+, a browser with WebGL 2, and an internet connection for map data
+and browser libraries. No Node.js, npm install or build step is needed to play.
 
 ```bash
 python3 serve.py
@@ -102,9 +100,9 @@ python3 serve.py
 Open <http://localhost:8080>. The globe flies to Davis; press **Walk here** (or search for
 somewhere else first).
 
-The server only serves files; map data is fetched by the browser and kept in its cache, so
-places you've visited load faster next time. The server listens on all interfaces, so other
-devices on your network or [Tailscale](https://tailscale.com) tailnet can play at
+The server only serves files; the browser fetches world data directly from its sources.
+The server listens on all interfaces, so other devices on your network or
+[Tailscale](https://tailscale.com) tailnet can play at
 `http://<this-machine's-ip>:8080`. Set `PORT=9000` to use a different port.
 
 Links: `http://localhost:8080/#48.85745,2.36154` starts walking at that latitude/longitude;
@@ -121,25 +119,51 @@ the address bar keeps your current position so you can share it.
 | Zoom camera | Mouse wheel |
 | Labels: tags → signs → off | `L` |
 | Photos of the place you're at | `P` |
-| About, credits and the GitHub link | `I` (also on the pause screen and the globe) |
+| About, graphics, character, credits and settings | `I` (also on the pause screen and the globe) |
 | Show or hide yourself to other players | `O` (or the Online button) |
 | Your car / your bike (`V` again: another car model) | `V` / `B` |
 | Get in or out (also any parked or passing car) | `F` |
-| Drive / brake | `W` `A` `S` `D` / `Space` |
+| Accelerate / steer | `W` / `A` `D` (or arrow keys) |
+| Car service brake, then reverse | `S` or down arrow |
+| Car rear handbrake / bicycle brake | `Space` |
+| Nitrous while driving a car | Hold `Shift` |
 | Look behind / horn | Hold `C` / `H` |
 | Sound on / off | `N` |
 | Time of day: live / day / sunset / night | `T` |
 | Weather: live / clear / rain / snow / fog | `Y` |
 | Speed in mph / km/h | `U` |
-| Map of where you are (pick a spot to walk to) | `M` |
+| Map: choose Walk here or Drive here | `M` |
 | Fly out to the globe | `G` |
 | Respawn where you walked in | `R` |
-| Pause / release mouse | `Esc` |
+| Pause when mouse capture is active | `Esc` |
 
 On phones and tablets: the joystick sits in the bottom-left corner (push further to run; hold it
 all the way for a moment to lock into a sprint, which keeps going after you let go until you
 touch the joystick again), drag anywhere else to look and steer, pinch to zoom, and tap **Jump**.
-Left-handed? **About → Joystick: Right** swaps the joystick and Jump.
+While driving, the joystick accelerates and steers; pull it back to brake, then reverse.
+Jump becomes **Handbrake** in cars or **Brake** on a bike, with **N₂O**, **Horn** and **Rear view**
+buttons where applicable. **About → Joystick: Right** swaps the joystick and Jump.
+
+Desktop mouse look captures and hides the cursor. If capture is unavailable, the game uses
+click-and-drag. The directions panel's **×** button ends navigation; `Esc` pauses rather than
+canceling the route. Cursor recovery after `Esc` has been reported unreliable in Safari and
+remains an open issue.
+
+## Graphics and performance
+
+Open **About (`I`) → Graphics**:
+
+- **Auto · smoother** adjusts the 3D rendering resolution in small steps, targeting 45 fps
+  to leave room above 40. It restores resolution when performance allows. High-density
+  displays may look softer during demanding scenes; interface text remains at native resolution.
+- **Full resolution** keeps the game's maximum render resolution, capped at 2× pixel density
+  on desktop and 1.5× on mobile. It can run more slowly than Auto.
+
+Both modes use the same model, texture and shadow settings. Trees use simpler distant meshes,
+off-screen pedestrians do less animation work, and shared textures, compact geometry and
+bounded map/terrain caches limit memory use. The FPS counter measures actual frame intervals.
+The target is not a frame-rate guarantee: device, screen size, city density and chunk loading
+all affect performance.
 
 ## How it works
 
@@ -150,13 +174,21 @@ Globe (MapLibre + OpenFreeMap) ──"Walk here"──▶ street world at that p
  data/detail/*.json (pre-built richer areas) ────┘  cuts them into ~500 m chunks and
                                                     builds streets, buildings and props
                                                     around the player as they move
+ Overture places, buildings and road signs ──────▶ enrich the streamed map data
  Terrain Tiles (elevation PNGs) ──────────────────▶ everything is draped on the ground
 ```
 
-Everything runs in the browser; `serve.py` is a plain file server. The only server-side piece
-is the small multiplayer relay in `relay/`, which passes positions between players. See
+The client uses plain JavaScript ES modules, three.js 0.160.1 and MapLibre GL JS 5.24.0.
+Rendering, world generation, movement and physics run in the browser; `serve.py` is a plain
+file server. External services provide map data, search, routing, photos and weather.
+The project's only backend is the optional multiplayer relay in `relay/`, which forwards
+nearby players' state; the game also works with multiplayer disabled. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details and [docs/DATA.md](docs/DATA.md) for
 the data formats.
+
+World detail depends on source coverage. Missing heights and styles are inferred, generated
+race starts and speed challenges are game events, and traffic currently assumes right-hand
+driving even in regions that drive on the left.
 
 ## Project layout
 
@@ -172,10 +204,13 @@ js/geo.js               Web Mercator tiles and the local metric frame around the
 js/terrain.js           Elevation from Terrain Tiles (Terrarium PNGs), sampled per point
 js/farview.js           Distant land and sea out to ~20 km, beyond the streamed streets
 js/tiledata.js          Load a tile (vector or detail) and convert it to the common format
+js/overture.js          Enrich map tiles with places, buildings and road sign data
 js/mvt.js               Minimal Mapbox Vector Tile decoder
+js/bridges.js           Bridge deck heights and approach ramps
 js/chunks.js            Streaming: tile prep, clipping into chunks, full/lite builds, unloading
 js/clip.js              Polygon and polyline clipping to chunk rectangles
 js/world.js             Chunk indexes and world queries: collision, curbs, streets, locations
+js/surface.js           Ground contact sampled from rendered terrain, road and sidewalk triangles
 js/streets.js           Ground, areas, roads, markings, crosswalks, sidewalks, furniture spots
 js/buildings.js         Building styles, heights, facades, roofs
 js/props.js             Trees, lamps, benches, bike racks, hydrants, parked cars (instanced)
@@ -183,14 +218,19 @@ js/trees.js             Shared textured tree geometry, wind and distance detail
 js/labels.js            Place labels: floating tags, 3D signs, street signs, info-card lookup
 js/photos.js            Photos of places from Wikimedia Commons (matched through Wikidata)
 js/minimap.js           Rotating minimap from per-chunk canvases
-js/character.js         The player's character (3D models with animations) and its fallback figure
+js/navigate.js          OSRM directions, lane guidance, route progress and rerouting
+js/roadsigns.js         Roadside guide signs and route shields
+js/character.js         Shared avatars, gait blending, arm swing, foot placement and rider poses
 js/profile.js           The player's name and character, kept on the device
 js/vehicles.js          Car/bike models, terrain contacts, collision impulses, the rider
 js/carphysics.js        Tire forces, suspension, drivetrain, weight transfer and surface grip
 js/traffic.js           Traffic cars following the streets, and traffic lights
 js/police.js            Police: crimes, wanted level, chases, roadblocks, busted/escaped, siren
+js/arcade.js            Speed Points, nitrous refill, gas station service and crash camera
+js/speedcams.js         Generated speed cameras/zones and saved personal bests
+js/races.js             Sprint and circuit routes, checkpoints, AI rivals and race results
 js/atmosphere.js        Sun position, sky, clouds, live weather (Open-Meteo), rain/snow, night lights
-js/drivingfx.js         Terrain-following tire tracks, smoke and batched light halos
+js/drivingfx.js         Tire tracks, smoke, spray, dust, impact sparks and batched light halos
 js/soundscape.js        Synthesized engine, tire, impact, horn, footstep and rain audio
 js/pedestrians.js       Bounded local walkers on verified sidewalks and footpaths
 js/people.js            Deterministic pedestrian appearance and behavior factory
@@ -210,8 +250,11 @@ serve.py                Static file server (Python standard library only)
 relay/                  Multiplayer relay (Cloudflare Worker + Durable Objects), deployed separately
 tools/build_detail.py   Build detailed tiles from OpenStreetMap (Overpass API)
 tools/fetch_textures.py Download and prepare the material textures
+tools/fetch_nature.py   Prepare bark and foliage textures with credits
+tools/prepare_people.py Prepare textured avatars and lighter population models
 tools/pack_character.py Pack a character .gltf into a compact .glb with the animations the game uses
 tools/screenshot.py     Headless screenshots for checking visual changes
+tools/check_*           Physics, ground contact, gait, geometry and rendering checks
 docs/                   Architecture, data formats, roadmap, images
 ```
 
@@ -236,8 +279,33 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
 ## Contributing
 
 - Read [AGENTS.md](AGENTS.md); it is the short guide for anyone (person or tool) changing the code.
-- For visual changes, run `python3 tools/screenshot.py` and look at the images before and
-  after your change.
+- Keep the runtime a static site with no build step. Changes should work with both detailed
+  Davis data and vector tiles elsewhere.
+- For visual changes, inspect Davis and a vector-tile city such as Paris. For streaming changes,
+  walk or drive across several chunks and watch for long frames and missing geometry.
+
+With the local server running, `/?test` enters Davis directly; `/?test&at=LAT,LON` enters
+another location. Test mode skips mouse capture and stays offline unless a relay is specified.
+
+Optional browser-check setup and screenshots:
+
+```bash
+python3 -m pip install -r tools/requirements.txt
+python3 -m playwright install chromium
+python3 tools/screenshot.py davis paris
+```
+
+Inspect the images in `screenshots/` and the reported page/console errors. Use `--software`
+where hardware WebGL is unavailable; software rendering is unsuitable for FPS measurements.
+Standalone physics and ground checks use Node.js without npm dependencies:
+
+```bash
+node tools/check_carphysics.mjs
+node tools/check_ground.mjs
+```
+
+Browser checks for gait, geometry and rendering performance are documented in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Run GPU benchmarks one at a time.
 
 ## Credits and license
 
@@ -245,6 +313,10 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
   Vector tiles by [OpenFreeMap](https://openfreemap.org) using the
   [OpenMapTiles](https://openmaptiles.org) schema. Search by [Nominatim](https://nominatim.org).
   The in-game credit lines must stay visible.
+- Additional places, buildings and road sign data from [Overture Maps](https://overturemaps.org),
+  with [source-specific attribution](https://docs.overturemaps.org/attribution/).
+  Routing by [OSRM](https://project-osrm.org), using [FOSSGIS](https://routing.openstreetmap.de/about.html)
+  and the OSRM demo server as a fallback. See [data sources](docs/DATA.md).
 - Material textures from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com),
   CC0 ([list](assets/textures/CREDITS.md)); tree textures also by Poly Haven
   ([credits](assets/nature/CREDITS.md)). Textured characters by
