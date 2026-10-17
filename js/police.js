@@ -411,7 +411,8 @@ export class Police {
         const dx = v.x - pv.x, dz = v.z - pv.z, d = Math.hypot(dx, dz);
         if (d < 3.6) {
           // Closing speed along the line between the cars.
-          const rvx = pv.fwd[0] * pv.speed - v.fwd[0] * v.speed, rvz = pv.fwd[1] * pv.speed - v.fwd[1] * v.speed;
+          const rvx = pv.fwd[0] * pv.speed + pv.right[0] * pv.slip - v.fwd[0] * v.speed - v.right[0] * v.slip;
+          const rvz = pv.fwd[1] * pv.speed + pv.right[1] * pv.slip - v.fwd[1] * v.speed - v.right[1] * v.slip;
           const closing = (rvx * dx + rvz * dz) / (d || 1);
           if (closing > 5) { dmg += closing * 3.5; u.hitCd = 0.6; }
         }
@@ -427,7 +428,7 @@ export class Police {
   _wreck(u) {
     const v = u.v;
     u.mode = 'wreck'; u.t = 0;
-    v.speed = 0;
+    v.stop();
     v.flash(false, 0);
     v.respray('#3a3a3c');
     v.tilt.rotation.set(0.08, 0, (Math.random() < 0.5 ? -1 : 1) * 0.35, 'XZY');
@@ -532,7 +533,9 @@ function steerTo(v, tx, tz, far, direct) {
   const [fx, fz] = v.fwd, [rx, rz] = v.right;
   const dx = tx - v.x, dz = tz - v.z, d = Math.hypot(dx, dz) || 1;
   const side = (dx * rx + dz * rz) / d, ahead = (dx * fx + dz * fz) / d;
-  let steer = clamp(side * 2.2, -1, 1), throttle = ahead > 0.3 ? 1 : 0.45;
+  const path = v.steerToPoint(tx, tz);
+  let steer = path.steer, throttle = ahead > 0.3 ? 1 : 0.45;
+  if (v.speed > path.cornerSpeed) throttle = -0.7;
   if (ahead < -0.3) {
     if (direct && d < 25) { throttle = -1; steer = clamp(side * 2.2, -1, 1); }  // close behind: reverse into it
     // Behind: brake hard on full lock, then back up turning the other way (a three-point turn).
@@ -611,7 +614,7 @@ class Heap {
 export class Siren {
   constructor() { this.ctx = null; this.on = true; }
   unlock() {
-    if (this.ctx) return;
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); return; }
     try {
       const ctx = new AudioContext();
       const osc = ctx.createOscillator(), lfo = ctx.createOscillator(), depth = ctx.createGain();

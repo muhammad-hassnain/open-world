@@ -170,7 +170,11 @@ export async function buildStreets(world, chunk, materials, { lite = false, budg
   let deckRoad = null;
   const deckMb = new MultiBuilder(materials, { drape: (x, z) => (deckRoad ? deckY(deckRoad, x, z) : 0), maxEdge: 6 });
   const on = (r) => { deckRoad = r; return deckMb; };
-  const finish = (cast) => [...mb.meshes({ cast, receive: true }), ...deckMb.meshes({ cast: true, receive: true })];
+  const finish = (cast) => {
+    const decks = deckMb.meshes({ cast: true, receive: true });
+    for (const mesh of decks) mesh.userData.deckSurface = true;
+    return [...mb.meshes({ cast, receive: true }), ...decks];
+  };
   const spots = { trees: [], wells: [], lamps: [], cars: [] };
   const rect = chunk.rect;
   const tick = async () => { if (budget) await budget.tick(); };

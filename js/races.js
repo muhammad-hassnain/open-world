@@ -185,8 +185,8 @@ export class Races {
     if (!v) { this._end('RACE ABANDONED'); return; }
     // Countdown: everyone waits.
     if (race.t < 0) {
-      v.speed = 0;
-      for (const r of race.rivals) r.v.speed = 0;
+      v.stop();
+      for (const r of race.rivals) r.v.stop();
       const n = Math.ceil(-race.t);
       if (n !== race.count) { race.count = n; this.pop(n > 3 ? 'GET READY' : String(Math.min(3, n)), null, `${race.s.kind === 'sprint' ? 'Sprint' : 'Circuit'} · ${(R.len / 1000).toFixed(1)} km${race.laps > 1 ? ` · ${race.laps} laps` : ''}`); }
       this._hud();
@@ -241,7 +241,9 @@ export class Races {
     const [fx, fz] = v.fwd, [rx, rz] = v.right;
     const dx = target.x - v.x, dz = target.z - v.z, dd = Math.hypot(dx, dz) || 1;
     const side = (dx * rx + dz * rz) / dd, ahead = (dx * fx + dz * fz) / dd;
-    const ctl = { steer: clamp(side * 2.4, -1, 1), throttle: speed < vt ? 1 : speed > vt + 3 ? -0.6 : 0.2, brake: false, boost: gap < -90 };
+    const path = v.steerToPoint(target.x, target.z);
+    vt = Math.min(vt, path.cornerSpeed);
+    const ctl = { steer: path.steer, throttle: speed < vt ? 1 : speed > vt + 2 ? -0.7 : 0.2, brake: false, boost: gap < -90 };
     if (ahead < 0) ctl.throttle = 0.5;
     // Stuck (after the start): back onto the route a little behind where it was.
     r.stuck = speed < 2 ? r.stuck + dt : 0;

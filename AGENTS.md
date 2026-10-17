@@ -59,6 +59,8 @@ There is no unit-test suite; correctness is checked by loading the game.
 | File | Responsibility |
 | --- | --- |
 | `js/main.js` | Renderer, sky, sun/shadows, screens (`globe`/`loading`/`street`), `enterStreet`, `findSpawn`, input, HUD, loop, `window.game` |
+| `js/rendering.js` | Fixed-light shader guards and adaptive 3D resolution; About graphics choice; performance state in `game.quality.stats` |
+| `js/geometry.js` | Cooperative exact vertex indexing for static chunk meshes; preserves UV/normal/color boundaries and surface positions |
 | `js/globe.js` | MapLibre globe (OpenFreeMap style, RTL text plugin), Nominatim search and reverse geocoding |
 | `js/materials.js` | Shared `MeshStandardMaterial`s: textured (with `userData.scale` = meters per texture repeat) and plain/paint/glass/water |
 | `js/aerial.js` | USGS aerial image per z14 tile (US only) → median roof color `rc` per building |
@@ -80,16 +82,22 @@ There is no unit-test suite; correctness is checked by loading the game.
 | `js/streets.js` | Ground, areas, roads, center lines, stop lines, crosswalks, paths, sidewalks, spots for trees/lamps/cars; lite mode for distant chunks |
 | `js/buildings.js` | `styleOf`, `layout` (floors/heights), walls (skipping chunk seams), roofs, facades, awnings; lite mode |
 | `js/props.js` | Shared, instanced trees, lamps, benches, bike racks, hydrants, bins, parked cars |
+| `js/trees.js` | Textured branch/canopy geometry, shared wind uniforms and matching depth shaders; per-instance near/far detail updated at 2 Hz (65 m desktop / 40 m mobile, 10 m hysteresis) |
 | `js/labels.js` | Per-chunk place items, sign placement, street-sign corners, floating tags, lazy 3D signs |
 | `js/multiplayer.js` | `Multiplayer`: WebSocket to the relay (room per zoom-6 tile), sends own state as lat/lon at ≤5 Hz (heartbeat 2 s), draws other players as `Character`s with name tags; `setOnline`, `setProfile`, `positions()` |
 | `relay/src/index.js` | The relay: `Room` Durable Object per region forwarding each player's state to players within 2 km; rate limits, cleans names |
 | `js/photos.js` | `placePhotos(name, lat, lon)`: Wikidata item near the place with a matching name → P18 image + Commons category photos, with author/license; cached |
 | `js/minimap.js` | Per-chunk minimap canvases and the rotating minimap |
-| `js/character.js` | `Character(look)`: 3D person from `LOOKS` (glTF in `assets/characters/`) with idle/walk/run blended by speed; a procedural figure stands in until it loads; `setLook()` |
-| `js/vehicles.js` | `Vehicle('car' \| 'bike', type)`: Kenney car models (stretched to real size) or a built bicycle; arcade `drive()` with footprint circles against `world.resolveCircle`, ground pitch/roll, bike lean; `loadCars()`, `parkedCarMesh()` for instanced parked cars |
+| `js/character.js` | `Character(look, appearance)`: four textured CC0 Innerscene/MakeHuman people, idle/walk/jog/run, head glances, analytic bicycle limb reach, lighter NPC meshes and owned-resource disposal; `setLook()` |
+| `js/vehicles.js` | `Vehicle('car' \| 'bike', type)`: Kenney models, fixed-step car dynamics, terrain/surface samples, contact impulses, AI path steering; kinematic bikes; `loadCars()`, `parkedCarMesh()` for instanced cars |
+| `js/carphysics.js` | Original 120 Hz car solver: per-wheel combined grip, mass/yaw inertia, spring/damper suspension and weight transfer, drivetrain/gears, drag, slope gravity and weather; `CAR_HANDLING` per model; pure JS numerical checks in `tools/check_carphysics.mjs` |
 | `js/traffic.js` | `Traffic`: ~20 instanced cars following car roads via `world.nodes` (across chunks), right-hand lane, junction choice, gap keeping, red lights (`world.signalAt` + `signalState`); `take()` for the player; `buildLights`/`updateLights` for light poles in full chunks |
 | `js/police.js` | `Police`: crimes seen by patrols (`_crimes`, line of sight), heat from chase time while seen; out of every unit's sight circle the cooldown drops one star each time it fills (`_sight`), `markers()` for the minimap (which zooms out in a chase); units (`Vehicle` + `steerTo` + A* `route` over `world.nodes`), roadblocks, busted/cooldown meters and HUD, `Siren` (Web Audio) |
 | `js/atmosphere.js` | `Atmosphere`: owns sky (shader with sun disc, sunset glow, clouds, stars), fog, sun/moon and hemisphere lights, env map rebakes; `sunPosition(date, lat, lon)`; live weather from Open-Meteo (WMO codes → clouds/rain/snow/fog/storm); GPU rain/snow; wet/snowy surfaces; night: lit windows (glass shader), lamp glow + point lights at the nearest lamps, headlights; time/weather modes |
+| `js/drivingfx.js` | `DrivingEffects`: fixed pools for skidmarks, tire smoke/spray/dust, impact sparks and light halos with cached occlusion; `clear()` on world changes; `game.drivingFX.stats` for checks |
+| `js/soundscape.js` | `Soundscape`: original Web Audio engine/tires/impacts/horns/footsteps/rain, shared siren context and sound toggle, capped transient voices; `game.sound.stats` |
+| `js/pedestrians.js` | `Pedestrians`: 8 local people (4 mobile), typed by `people.js`, extending validated routes, pausing, passing and avoiding nearby cars; pooled characters, `clear()` on world changes; `game.pedestrians.stats` |
+| `js/people.js` | Deterministic factory of stroller/commuter/walker/jogger appearance and behavior descriptors; clothing palettes, height/build, pace, pauses and animation phase |
 | `js/limits.js` | `speedLimit(road, miles)` by road class, `milesHere(lat, lon)` (US, UK); used by the speedometer, traffic speeds and police speeding |
 | `js/profile.js` | Player name and look in localStorage (`loadProfile`, `saveProfile`, `cleanName`) |
 | `js/player.js` | Movement (`gait` 0 walk, 1 run, 2 sprint), curbs, collision, camera |
@@ -130,8 +138,8 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
   `MultiBuilder` with `drape`, which subdivides triangles to `maxEdge` and adds the elevation;
   write them flat (small `Y` offsets from `streets.js`) and let the drape lift them. Their draw
   order on slopes comes from `layered()` in `materials.js` (a depth bias toward the camera), so
-  a new ground material needs a layer there; `polygonOffset` does not work with the logarithmic
-  depth buffer. Buildings use `mb.setYOffset(b.base)`: one base per building, foundations
+  a new ground material needs a layer there. Keep this view-space bias consistent with
+  people/vehicle contact materials. Buildings use `mb.setYOffset(b.base)`: one base per building, foundations
   below. Props, labels and anything else placed in the world add `world.groundAt` or
   `world.elevation`. Test "is this a sidewalk" with `world.onSidewalk`, never `groundAt > 0`.
 - **Custom shaders** must include `#include <colorspace_fragment>` on its own line.
@@ -142,8 +150,11 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DATA.md](doc
   texture becomes any paint color). Texture coordinates are world-anchored (`uvWall`,
   `uvAlong`, `uvPlanar` on `GeoBuilder`) so textures line up across walls and chunks; set the
   right one before adding faces. Rendering uses ACES tone mapping and an environment map baked
-  from the sky. Trees and cars are still simple shapes; people are low-poly CC0 models
-  (Quaternius) loaded with `GLTFLoader`, cloned with `SkeletonUtils` per person.
+  from the sky. Trees use shared instanced branch/foliage meshes with distance detail; cars are low-poly, and people are textured CC0 models
+  (Innerscene / MakeHuman) loaded with `GLTFLoader`, cloned with `SkeletonUtils` per person.
+  `people.js` supplies deterministic appearance/behavior templates. Textures/geometry are shared;
+  per-person tinted materials and skeleton bone textures must be disposed. `Character` restores
+  its last animation pose before procedural edits, not the bind pose (the mixer caches constants).
 - **Detail data:** if you change the Overpass query or processors in `tools/build_detail.py`,
   bump `PROCESS_VERSION` and rebuild (`python3 tools/build_detail.py --force`).
 - **Credits must stay visible:** `#attrib` (street view) and MapLibre's attribution (globe)
@@ -221,8 +232,8 @@ in detail data.
 - Vehicles: parked cars are props in `chunk.parked` (`takeParkedCar` hides the instance and turns
   its collider off; it comes back when the chunk rebuilds). Vehicles that move between chunks are
   `world.obstacles` (circles) while parked; the one being driven passes itself as `ignore` to
-  `resolveCircle`. The rider pose (`RIDE` in `character.js`) rotates bones on top of the idle clip,
-  resetting them first because the clip doesn't animate every bone.
+  `resolveCircle`. The rider pose (`RIDE` in `character.js`) uses two-bone reach over the idle clip to
+  place hands on grips and independently rigged feet on the rotating pedals.
 - Traffic lights: `ChunkIndex.signals` (from junctions; mapped `signal` props in detail data, else
   where two roads of tertiary or higher cross with one secondary or higher). Each controller
   alternates two axes on a 36 s cycle; `signalState(sig, axis, t)` is the one source of truth for

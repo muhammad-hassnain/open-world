@@ -208,13 +208,14 @@ export class Multiplayer {
       const y = (this.world ? this.world.groundAt(o.x, o.z, o.y ?? null) : 0) + o.a;
       o.y = y - o.a;
       if (o.vehicle) {
-        o.vehicle.follow(o.x, o.z, y, o.yaw, o.s, dt);
+        o.vehicle.follow(o.x, o.z, y, o.yaw, o.s, dt, this.world);
         o.char.root.visible = o.v === 'bike';
+        if (o.v === 'bike') o.char.pedalAngle = o.vehicle.bike.crank.rotation.x;
         o.char.update(dt, Math.abs(o.s), false);
       } else {
         root.position.set(o.x, y, o.z);
         root.rotation.y = o.yaw;
-        o.char.update(dt, o.s, o.a > 0.05);
+        o.char.update(dt, o.s, o.a > 0.05, this.world);
       }
       // Name tag above the head.
       v.set(o.x, y + 2.05, o.z).project(cam);

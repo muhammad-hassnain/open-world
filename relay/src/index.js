@@ -15,7 +15,7 @@ const MAX_PLAYERS = 200;   // per room
 const MAX_RATE = 12;       // messages per second per player; more are dropped
 const MAX_LEN = 400;       // bytes per message
 const NAME_MAX = 20;
-const LOOKS = new Set(['man', 'woman']);
+const LOOKS = new Set(['man', 'woman', 'harper', 'jordan']);
 const VEHICLE = /^(|bike|car:[a-z-]{1,24})$/;
 
 export default {

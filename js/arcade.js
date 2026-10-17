@@ -97,7 +97,7 @@ export class Arcade {
     if (!v) { for (const k of Object.keys(this.streak)) this._streak(k, '', 0, 0, false); this._render(null); return; }
 
     if (!v.boosting) v.nitro = Math.min(1, (v.nitro || 0) + dt * 0.006);  // trickles back slowly on its own
-    const speed = Math.abs(v.speed), [fx, fz] = v.fwd;
+    const speed = v.groundSpeed, [fx, fz] = v.fwd;
 
     // Near misses: a car passes beside us (1-3 m) at speed without touching.
     for (const c of [...this.traffic.cars, ...this.police.units.map((u) => u.v)]) {
@@ -125,7 +125,8 @@ export class Arcade {
       }
     }
     this._streak('oncoming', 'ONCOMING', 90, dt, oncoming);
-    this._streak('drift', 'DRIFT', 140, dt, !!(player.input?.brake) && speed > 9 && Math.abs(v.yawRate || 0) > 0.45);
+    this._streak('drift', 'DRIFT', 140, dt, v.grounded && speed > 9 && Math.abs(v.slip) > 2
+      && Math.abs(v.yawRate || 0) > 0.2 && v.tireSlip > 0.15);
     this._streak('speed', 'TOP SPEED', 40, dt, speed > v.spec.maxFwd * 0.85);
 
     this._gasStations(dt, v);

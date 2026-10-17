@@ -1,15 +1,17 @@
-// Cars and bicycles: models, arcade driving and their place in the world.
+// Cars and bicycles: models, vehicle dynamics and their place in the world.
 // Cars are Kenney's "Car Kit" (CC0, assets/vehicles/), stretched to real-world proportions; the
 // bicycle is built here. A Vehicle faces -Z at yaw 0, like the player; its root sits on the ground.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp, lerp, angleDelta } from './util.js';
+import { CarPhysics, CAR_STEP } from './carphysics.js';
+import { contactMaterial } from './materials.js';
 
 // Cars people drive (traffic, parked, yours) and every model file to load (adds police cars).
 export const CAR_TYPES = ['sedan', 'hatchback-sports', 'sedan-sports', 'suv', 'suv-luxury', 'taxi', 'van'];
 const MODEL_FILES = [...CAR_TYPES, 'police'];
-const BODY_SCALE = new THREE.Vector3(1.25, 1.15, 1.7);  // the kit's cars are short and wide
+const BODY_SCALE = new THREE.Vector3(1.5, 1.15, 2.0);  // road-car width and wheelbase in meters
 const WHEEL_SCALE = 1.15;
 
 // Driving: speeds in m/s, rates in m/s², steering in radians, circles = collision footprint
@@ -22,8 +24,8 @@ const SPECS = {
 };
 export const VEHICLE_SPECS = SPECS;
 
-// How each car model drives: top speed (m/s), acceleration, steering (x the base), grip (how fast
-// the steering responds), body roll in turns (x), camera distance.
+// Car performance and presentation. Physical mass, drivetrain, tires and suspension live in
+// carphysics.js; these speed/acceleration values also seed the gearing and engine torque.
 export const CAR_MODELS = {
   sedan: { label: 'Sedan', maxFwd: 30, accel: 3.6, steer: 1, grip: 6, roll: 1, cam: 7.5 },
   'sedan-sports': { label: 'Sports sedan', maxFwd: 38, accel: 5.2, steer: 1.08, grip: 9, roll: 0.55, cam: 7 },
@@ -54,15 +56,24 @@ export function loadCars() {
     g.scene.updateMatrixWorld(true);
     g.scene.traverse((o) => {
       if (!o.isMesh) return;
+      contactMaterial(o.material);
       o.material.envMapIntensity = 0.7;
       o.material.userData.shared = true;
       out.material = o.material;
       const geo = o.geometry.clone();
       geo.userData.shared = true;
       if (o.name.startsWith('wheel')) {
-        geo.scale(WHEEL_SCALE, WHEEL_SCALE, WHEEL_SCALE);
+        const roadWheel = /-(left|right)$/.test(o.name);
+        geo.scale(roadWheel ? 0.65 : WHEEL_SCALE, WHEEL_SCALE, WHEEL_SCALE);
         const p = o.getWorldPosition(new THREE.Vector3()).multiply(BODY_SCALE);
-        out.wheels.push({ name: o.name, geometry: geo, position: p });
+        geo.computeBoundingBox();
+        const center = geo.boundingBox.getCenter(new THREE.Vector3());
+        geo.translate(-center.x, -center.y, -center.z); p.add(center);
+        const vertices = geo.attributes.position;
+        let radius = 0;
+        for (let i = 0; i < vertices.count; i++) radius = Math.max(radius, Math.hypot(vertices.getY(i), vertices.getZ(i)));
+        out.wheels.push({ name: o.name, geometry: geo, position: p, radius,
+          halfWidth: (geo.boundingBox.max.x - geo.boundingBox.min.x) / 2 });
       } else {
         // Everything that isn't a wheel is body (some models add a grille or spoiler).
         geo.applyMatrix4(o.matrixWorld);
@@ -73,6 +84,20 @@ export function loadCars() {
     if (parts.length) {
       out.body = parts.length > 1 ? mergeGeometries(parts, false) : parts[0];
       out.body.userData.shared = true;
+      out.body.computeBoundingBox();
+      const halfWidth = (out.body.boundingBox.max.x - out.body.boundingBox.min.x) / 2;
+      const vertices = out.body.attributes.position;
+      for (const w of out.wheels) if (/-(left|right)$/.test(w.name)) {
+        w.geometry.computeBoundingBox();
+        const tireWidth = w.geometry.boundingBox.max.x - w.geometry.boundingBox.min.x;
+        // Fit the tread to the lower wheel arch, not the wider mirrors/body accessories.
+        let arch = 0;
+        for (let i = 0; i < vertices.count; i++) {
+          if (Math.abs(vertices.getZ(i) - w.position.z) < 0.65 && vertices.getY(i) > 0.05
+            && vertices.getY(i) < w.position.y + 0.2) arch = Math.max(arch, Math.abs(vertices.getX(i)));
+        }
+        w.position.x = Math.sign(w.position.x) * ((arch || halfWidth * 0.8) - tireWidth * 0.3);
+      }
       cars.set(t, out);
     }
   }).catch((e) => console.warn(`Car ${t} didn't load: ${e.message}`)))).then(() => cars);
@@ -97,11 +122,51 @@ export function parkedCarMesh(type) {
   return parked.get(type);
 }
 
+const _contactP = new THREE.Vector3(), _contactN = new THREE.Vector3();
+const _axle = new THREE.Vector3(), _suspension = new THREE.Vector3();
+const _contactQ = new THREE.Quaternion(), _bankQ = new THREE.Quaternion();
+const X_AXIS = new THREE.Vector3(1, 0, 0), Y_AXIS = new THREE.Vector3(0, 1, 0), Z_AXIS = new THREE.Vector3(0, 0, 1);
+// A tire is a finite-width cylinder. Its support distance against a banked plane is
+// not simply its vertical radius (the lower tread edge matters while cornering).
+function tireSupport(normal, axle, radius, halfWidth) {
+  const dot = clamp(normal.dot(axle), -1, 1);
+  return (radius * Math.sqrt(1 - dot * dot) + halfWidth * Math.abs(dot)) / Math.max(0.25, normal.y);
+}
+
+// Merged cars face +X. Fit all four real tire positions, including cross-slope, and
+// lift the rigid instance only enough to clear every tire. Used by parking and traffic.
+export function fitParkedCar(type, x, z, rot, world, y = null) {
+  const wheels = cars.get(type)?.wheels.filter(w => /-(left|right)$/.test(w.name));
+  if (!wheels?.length) return { y: world.groundAt(x, z, y) + 0.04, tilt: 0, bank: 0 };
+  const fx = Math.cos(rot), fz = -Math.sin(rot), rx = -fz, rz = fx;
+  const samples = wheels.map(w => ({ w, a: w.position.z, b: -w.position.x,
+    h: world.groundAt(x + fx * w.position.z - rx * w.position.x, z + fz * w.position.z - rz * w.position.x, y) }));
+  const avg = (list, key) => list.reduce((sum, s) => sum + s[key], 0) / list.length;
+  const front = samples.filter(s => s.w.name.includes('front')), rear = samples.filter(s => !s.w.name.includes('front'));
+  const left = samples.filter(s => s.b < 0), right = samples.filter(s => s.b > 0);
+  const grade = (avg(front, 'h') - avg(rear, 'h')) / (avg(front, 'a') - avg(rear, 'a'));
+  const cross = (avg(right, 'h') - avg(left, 'h')) / (avg(right, 'b') - avg(left, 'b'));
+  const tilt = Math.atan(grade), bank = Math.atan(cross * Math.cos(tilt));
+  let height = samples.reduce((sum, s) => sum + s.h - grade * s.a - cross * s.b, 0) / samples.length;
+  _contactQ.setFromAxisAngle(Y_AXIS, rot)
+    .multiply(_bankQ.setFromAxisAngle(Z_AXIS, tilt)).multiply(_bankQ.setFromAxisAngle(X_AXIS, -bank));
+  _axle.copy(Z_AXIS).applyQuaternion(_contactQ);
+  let lift = -Infinity;
+  for (const { w } of samples) {
+    _contactP.set(w.position.z, w.position.y, -w.position.x).applyQuaternion(_contactQ);
+    _contactP.x += x; _contactP.y += height; _contactP.z += z;
+    const h = world.groundAt(_contactP.x, _contactP.z, y, _contactN);
+    lift = Math.max(lift, h + tireSupport(_contactN, _axle, w.radius, w.halfWidth) + 0.008 - _contactP.y);
+  }
+  height += lift;
+  return { y: height, tilt, bank };
+}
+
 // ---------- car lights ----------
 
 // Headlights and taillights, shared by every car; bright at night (setCarLights).
-const HEAD = new THREE.MeshBasicMaterial({ color: '#fff6e0', toneMapped: false });
-const TAIL = new THREE.MeshBasicMaterial({ color: '#ff2a1a', toneMapped: false });
+const HEAD = contactMaterial(new THREE.MeshBasicMaterial({ color: '#fff6e0', toneMapped: false }));
+const TAIL = contactMaterial(new THREE.MeshBasicMaterial({ color: '#ff2a1a', toneMapped: false }));
 HEAD.userData.shared = TAIL.userData.shared = true;
 const HEAD_ON = new THREE.Color('#fff6e0').multiplyScalar(3), HEAD_OFF = new THREE.Color('#cfd3d6');
 const TAIL_ON = new THREE.Color('#ff2a1a').multiplyScalar(2.2), TAIL_OFF = new THREE.Color('#7a1d16');
@@ -119,11 +184,18 @@ function carLights(type) {
     b.computeBoundingBox();
     const { min, max } = b.boundingBox, hw = (max.x - min.x) / 2, y = min.y + (max.y - min.y) * 0.42;
     const pair = (z, w, h) => mergeGeometries([-1, 1].map((s) => new THREE.BoxGeometry(w, h, 0.05).translate(s * hw * 0.68, y, z)));
-    const g = { head: pair(max.z + 0.02, 0.32, 0.14), tail: pair(min.z - 0.02, 0.3, 0.12) };
+    const g = { head: pair(max.z + 0.02, 0.32, 0.14), tail: pair(min.z - 0.02, 0.3, 0.12),
+      points: [-1, 1].map((s) => new THREE.Vector3(s * hw * 0.68, y, max.z + 0.065)) };
     g.head.userData.shared = g.tail.userData.shared = true;
     lightGeo.set(type, g);
   }
   return lightGeo.get(type);
+}
+
+// Light centers in the model's +Z-forward frame (also used by instanced traffic).
+export function headlightPoints(type) {
+  const model = CAR_MODELS[type]?.model || type;
+  return cars.has(model) ? carLights(model).points : [];
 }
 
 // The same, rotated to point along +X like parkedCarMesh(), for instanced traffic.
@@ -217,17 +289,33 @@ export class Vehicle {
     this.root.add(this.tilt);
     this.x = 0; this.z = 0; this.y = 0; this.yaw = 0;
     this.speed = 0; this.steer = 0; this.pitch = 0; this.roll = 0; this.spin = 0;
+    this.slip = 0; // lateral velocity in the car's frame; independent of its heading
+    this.impactSerial = 0; this.impactCooldown = 0;
     this.nitro = 0.5; this.boosting = false; this.flat = false;
     this.driver = null;
     if (kind === 'car') this._buildCar(); else this._buildBike(color);
+    if (kind === 'car') {
+      this.physics = new CarPhysics(this.spec, this.type, this.wheelR);
+      this._physicsTime = 0; this._surfaceTime = 0; this._contacts = [];
+      this._samples = this.physics.wheels.map(() => ({ height: 0, grip: 1, rolling: 0.014 }));
+      for (const w of this.wheels) w.contact = this.physics.wheels.find(p => p.front === w.front && p.side === -Math.sign(w.pivot.position.x));
+      // The solver's origin is the centre of mass, not the mesh's geometric centre.
+      // Align the model axles with the force/suspension sample positions.
+      const front = this.wheels.find(w => w.front);
+      const offset = front.pivot.position.z - front.contact.a;
+      this.carModel.position.z = offset;
+      this.spec.circles = this.spec.circles.map(a => a - offset);
+    }
   }
 
   get code() { return this.kind === 'car' ? `car:${this.type}` : 'bike'; }
+  get groundSpeed() { return Math.hypot(this.speed, this.slip); }
 
   // New paint (a tint on the model's palette texture); null restores the original.
   respray(color) {
     if (this.kind !== 'car' || !this.body) return;
     if (!this._paint) { this._paint = this.body.material.clone(); this._paint.userData = {}; }
+    contactMaterial(this._paint);
     this._paint.color.set(color || '#ffffff');
     this.body.material = this._paint;
   }
@@ -238,10 +326,12 @@ export class Vehicle {
     let material = c.material;
     if (m.tint) {
       material = c.material.clone();
-      material.color.setRGB(...m.tint);
       material.userData = {};
+      contactMaterial(material);
+      material.color.setRGB(...m.tint);
     }
     const model = new THREE.Group();
+    this.carModel = model;
     model.rotation.y = Math.PI;  // the kit's cars face +Z
     const body = new THREE.Mesh(c.body, material);
     body.castShadow = true;
@@ -250,17 +340,35 @@ export class Vehicle {
     this._base = material;
     this.wheels = [];
     for (const w of c.wheels) {
+      // The SUV's fifth wheel is a fixed spare, not a suspension/steering contact.
+      if (!/-(left|right)$/.test(w.name)) {
+        const spare = new THREE.Mesh(w.geometry, material);
+        spare.position.copy(w.position); spare.castShadow = true; model.add(spare); continue;
+      }
       const pivot = new THREE.Group();
       pivot.position.copy(w.position);
       const mesh = new THREE.Mesh(w.geometry, material);
       mesh.castShadow = true;
       pivot.add(mesh);
       model.add(pivot);
-      this.wheels.push({ pivot, mesh, front: w.name.includes('front') });
+      this.wheels.push({ pivot, mesh, baseY: w.position.y, radius: w.radius, halfWidth: w.halfWidth,
+        front: w.name.includes('front') });
     }
-    this.wheelR = 0.3 * WHEEL_SCALE;
+    this.wheelR = this.wheels.reduce((sum, w) => sum + w.radius, 0) / this.wheels.length;
+    const axle = front => this.wheels.filter(w => w.front === front).reduce((n, w) => n + w.pivot.position.z, 0) / 2;
+    const xs = this.wheels.map(w => w.pivot.position.x);
+    c.body.computeBoundingBox();
+    const bounds = c.body.boundingBox, radius = (bounds.max.x - bounds.min.x) * 0.48;
+    this.spec = { ...this.spec, wheelbase: axle(true) - axle(false), track: Math.max(...xs) - Math.min(...xs),
+      r: radius, circles: [bounds.min.z + radius, 0, bounds.max.z - radius] };
     const lg = carLights(m.model || this.type);
     model.add(new THREE.Mesh(lg.head, HEAD), new THREE.Mesh(lg.tail, TAIL));
+    this.headlights = lg.points.map((p) => {
+      const anchor = new THREE.Object3D();
+      anchor.position.copy(p);
+      model.add(anchor);
+      return anchor;
+    });
     this.tilt.add(model);
     if (m.police) this._lightBar(c);
   }
@@ -271,7 +379,7 @@ export class Vehicle {
     const top = c.body.boundingBox.max.y + 0.06;
     this.bar = [];
     for (const [x, color] of [[-0.28, '#ff2a2a'], [0.28, '#2a6bff']]) {
-      const mat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
+      const mat = contactMaterial(new THREE.MeshBasicMaterial({ color, toneMapped: false }));
       const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.22), mat);
       lamp.position.set(x, top, 0.15);
       this.tilt.add(lamp);
@@ -288,36 +396,150 @@ export class Vehicle {
 
   _buildBike(color) {
     const b = bikeModel(color);
+    b.group.traverse(o => { if (o.isMesh) contactMaterial(o.material); });
     this.bike = b;
     this.wheelR = b.radius;
     this.tilt.add(b.group);
   }
 
   place(x, z, yaw, world) {
-    Object.assign(this, { x, z, yaw, speed: 0, steer: 0 });
-    this._ground(world, 1, true);
+    this._world = world;
+    Object.assign(this, { x, z, yaw, speed: 0, steer: 0, slip: 0 });
+    if (this.physics) {
+      this.stop(); this._physicsTime = 0; this._surfaceTime = 0;
+      this.physics.settle(this, this._sampleRoad(world, 0).map(s => s.height));
+    } else this._ground(world, 1, true);
     this._sync();
+  }
+
+  stop() {
+    this.speed = this.slip = this.steer = this.yawRate = 0;
+    this.physicsActive = false;
+    this.physics?.reset();
+    this.boosting = false;
+    this.bodyPitch = this.bodyRoll = 0;
   }
 
   // Forward and right unit vectors on the ground.
   get fwd() { return [-Math.sin(this.yaw), -Math.cos(this.yaw)]; }
   get right() { return [Math.cos(this.yaw), -Math.sin(this.yaw)]; }
 
-  // Arcade driving. ctl: throttle -1..1 (negative brakes, then reverses), steer -1..1 (right +),
-  // brake: handbrake held, boost: nitrous (uses this.nitro, 0..1).
+  // AI requests a path curvature and brakes for its available grip, using the same tire solver.
+  steerToPoint(x, z) {
+    const [fx, fz] = this.fwd, [rx, rz] = this.right, dx = x - this.x, dz = z - this.z;
+    const curvature = 2 * (dx * rx + dz * rz) / Math.max(16, dx * dx + dz * dz);
+    const correction = Math.atan2(this.slip, Math.max(4, Math.abs(this.speed))) * 0.4;
+    const wheel = Math.atan(this.spec.wheelbase * curvature) + correction;
+    const fraction = clamp(wheel / this.physics.steeringLimit(this.speed), -1, 1);
+    const grip = this._samples.reduce((n, s) => n + s.grip, 0) / 4;
+    return { steer: Math.sign(fraction) * Math.abs(fraction) ** (1 / 1.35),
+      cornerSpeed: Math.sqrt(this.physics.p.mu * grip * this.physics.weatherGrip * 9.81 * 0.65 / Math.max(0.002, Math.abs(curvature))),
+      ahead: dx * fx + dz * fz };
+  }
+
+  // Controls: throttle -1..1 (S brakes before selecting reverse), steer -1..1,
+  // brake = rear handbrake, serviceBrake = optional separate brake pedal, boost = nitrous.
   drive(dt, ctl, world) {
+    this._world = world;
+    if (this.kind === 'bike') { this._driveBike(dt, ctl, world); return; }
+    this.physicsActive = true;
+    const input = { ...ctl, wet: ctl.wet ?? world.drivingWeather?.wet ?? 0,
+      snow: ctl.snow ?? world.drivingWeather?.snow ?? 0 };
+    this._physicsTime += Math.min(dt, 0.1);
+    while (this._physicsTime + 1e-9 >= CAR_STEP) {
+      this._physicsTime = Math.max(0, this._physicsTime - CAR_STEP);
+      this.impactCooldown = Math.max(0, this.impactCooldown - CAR_STEP);
+      this.boosting = !!input.boost && input.throttle > 0 && this.nitro > 0 && this.speed > 2;
+      if (this.boosting) this.nitro = Math.max(0, this.nitro - CAR_STEP / 3.5);
+      const velocity = this.physics.step(this, input, CAR_STEP, this._sampleRoad(world, CAR_STEP));
+      this._moveCar(CAR_STEP, velocity, world);
+      if (this.physics.landing > 3) this._impact(this.x, this.z, this.physics.landing, 'landing');
+    }
+    this._sync();
+  }
+
+  _sampleRoad(world, dt) {
+    const [fx, fz] = this.fwd, [rx, rz] = this.right;
+    const deck = world.deckAt(this.x, this.z, this.y);
+    this._surfaceTime -= dt;
+    const refresh = this._surfaceTime <= 0;
+    if (refresh) this._surfaceTime = 0.12;
+    this.physics.wheels.forEach((w, i) => {
+      const x = this.x + fx * w.a + rx * w.b, z = this.z + fz * w.a + rz * w.b;
+      const sample = this._samples[i];
+      let height = world.groundAt(x, z, this.y);
+      if (deck !== null && height < deck - 1.5) height = deck;
+      sample.height = height;
+      if (refresh) {
+        const paved = deck !== null || world.onRoad(x, z) || world.onSidewalk(x, z);
+        const area = paved ? null : world.areaAt(x, z);
+        const natural = !paved && (!area || ['grass', 'wood', 'farm', 'sand', 'water'].includes(area.k));
+        sample.grip = natural ? (area?.k === 'sand' ? 0.48 : 0.60) : 1;
+        sample.rolling = natural ? 0.055 : 0.014;
+      }
+    });
+    return this._samples;
+  }
+
+  _moveCar(dt, velocity, world) {
+    const ox = this.x, oz = this.z, distance = Math.hypot(velocity.vx, velocity.vz) * dt;
+    const steps = Math.max(1, Math.ceil(distance / 0.4));
+    for (let step = 0; step < steps; step++) {
+      // Read the velocity again after an impulse; don't continue driving into the wall.
+      const [fx, fz] = this.fwd, [rx, rz] = this.right;
+      this.x += (fx * this.speed + rx * this.slip) * dt / steps;
+      this.z += (fz * this.speed + rz * this.slip) * dt / steps;
+      if (Math.abs(this.speed) > 6) {
+        const nose = this.spec.circles[this.speed > 0 ? 2 : 0];
+        if (world.smash(this.x + fx * nose, this.z + fz * nose, this.spec.r,
+          fx * Math.sign(this.speed), fz * Math.sign(this.speed))) this.speed *= 0.85;
+      }
+      for (const offset of this.spec.circles) {
+        const x = this.x + fx * offset, z = this.z + fz * offset;
+        this._contacts.length = 0;
+        const [qx, qz] = world.resolveCircle(x, z, this.rough ? this.spec.r * 0.8 : this.spec.r,
+          this, this.rough, this._contacts);
+        this.x += qx - x; this.z += qz - z;
+        for (const hit of this._contacts) {
+          const closing = this.physics.collide(this, hit.x, hit.z, hit.nx, hit.nz, hit.other);
+          if (closing > 0) {
+            this._impact(hit.x, hit.z, closing);
+            this.hitNow = Math.max(this.hitNow || 0, closing);
+            this.hit = Math.max(this.hit || 0, closing);
+          }
+        }
+      }
+    }
+    if (world.offDeck(ox, oz, this.x, this.z, this.y, this.spec.track / 2)) {
+      const t = world.deckDir(ox, oz, this.y);
+      const dx = this.x - ox, dz = this.z - oz;
+      if (t) {
+        const along = dx * t[0] + dz * t[1];
+        const nx = dx - t[0] * along, nz = dz - t[1] * along, length = Math.hypot(nx, nz);
+        if (length > 1e-6) {
+          const closing = this.physics.collide(this, this.x, this.z, -nx / length, -nz / length);
+          this._impact(this.x, this.z, closing);
+          this.hitNow = Math.max(this.hitNow || 0, closing);
+        }
+        const sx = ox + t[0] * along, sz = oz + t[1] * along;
+        if (!world.offDeck(ox, oz, sx, sz, this.y, this.spec.track / 2)) { this.x = sx; this.z = sz; return; }
+      }
+      this.x = ox; this.z = oz;
+    }
+  }
+
+  // Bicycles keep the lightweight kinematic model.
+  _driveBike(dt, ctl, world) {
     const P = this.spec;
     const thr = clamp(ctl.throttle || 0, -1, 1);
-    // Nitrous: 30% more top speed and twice the pull while it lasts (about 4 s from full).
-    this.boosting = !!ctl.boost && thr > 0 && this.kind === 'car' && this.nitro > 0 && this.speed > 2;
-    if (this.boosting) this.nitro = Math.max(0, this.nitro - dt / 3.5);
-    // Blown tires (spike strips): about half the speed until repaired.
-    const top = P.maxFwd * (this.boosting ? 1.3 : 1) * (this.flat ? 0.55 : 1);
+    this.impactCooldown = Math.max(0, this.impactCooldown - dt);
+    this.boosting = false;
+    const top = P.maxFwd;
     const target = thr > 0 ? thr * top : thr < 0 ? thr * P.maxRev : 0;
     const opposing = (thr > 0 && this.speed < -0.3) || (thr < 0 && this.speed > 0.3);
     // Acceleration fades toward top speed, as with a real engine.
     const pull = thr > 0 && this.speed > 0 ? Math.max(0, 1 - 0.65 * (this.speed / top) ** 2) : 1;
-    const rate = opposing ? P.brake : thr !== 0 ? P.accel * pull * (this.boosting ? 2 : 1) : P.coast;
+    const rate = opposing ? P.brake : thr !== 0 ? P.accel * pull : P.coast;
     this.speed = approach(this.speed, opposing ? 0 : target, rate * dt);
     if (ctl.brake) this.speed = approach(this.speed, 0, P.hand * dt);
 
@@ -337,10 +559,6 @@ export class Vehicle {
     let x = this.x, z = this.z, cx = 0, cz = 0, n = 0;
     for (let st = 0; st < steps && !n; st++) {
       x += (fx * move) / steps; z += (fz * move) / steps;
-      if (Math.abs(this.speed) > 6 && this.kind === 'car') {
-        const nose = P.circles[P.circles.length - 1] * Math.sign(this.speed);
-        if (world.smash(x + fx * nose, z + fz * nose, P.r, fx * Math.sign(this.speed), fz * Math.sign(this.speed))) this.speed *= 0.85;
-      }
       for (const o of P.circles) {
         const px = x + fx * o, pz = z + fz * o;
         const [qx, qz] = world.resolveCircle(px, pz, this.rough ? P.r * 0.8 : P.r, this, this.rough);
@@ -348,6 +566,7 @@ export class Vehicle {
       }
     }
     if (n) {
+      this._impact(x, z, Math.abs(this.speed));
       this.hitNow = Math.max(this.hitNow || 0, Math.abs(this.speed));  // for police.js (crashes)
       x += cx / n; z += cz / n;
       const l = Math.hypot(cx, cz) || 1;
@@ -355,10 +574,10 @@ export class Vehicle {
       this.speed *= head < -0.5 ? -0.2 : 0.96;
       this.hit = Math.max(this.hit || 0, Math.abs(this.speed));
     }
-    // Bridge railings: stop at the edge of a deck instead of dropping off it.
     // Bridge railings: scrape along the edge of a deck instead of dropping off it.
-    const inset = this.kind === 'car' ? 1.0 : 0.4;
+    const inset = 0.4;
     if (world.offDeck(this.x, this.z, x, z, this.y, inset)) {
+      this._impact(x, z, Math.abs(this.speed) * 0.6);
       const t = world.deckDir(this.x, this.z, this.y);
       const mx = x - this.x, mz = z - this.z;
       let ok = false;
@@ -379,16 +598,16 @@ export class Vehicle {
       this.hit = Math.max(this.hit || 0, Math.abs(this.speed) * 0.5);
     }
     this.x = x; this.z = z;
-    // Body roll from cornering and pitch from braking/accelerating (visual only).
-    if (this.kind === 'car') {
-      const accel = (this.speed - (this._lastSpeed ?? this.speed)) / Math.max(dt, 1e-3);
-      this._lastSpeed = this.speed;
-      this.bodyRoll = damp(this.bodyRoll || 0, clamp(yawRate * this.speed * 0.012 * P.rollK, -0.1, 0.1), 5, dt);
-      this.bodyPitch = damp(this.bodyPitch || 0, clamp(-accel * 0.006, -0.05, 0.05), 6, dt);
-    }
     this._ground(world, dt);
     this.spin -= (this.speed * dt) / this.wheelR;
     this._sync();
+  }
+
+  _impact(x, z, speed, kind = 'collision') {
+    if (speed < 3 || this.impactCooldown > 0) return;
+    this.impactCooldown = 0.18;
+    this.impact = { x, y: this.y + 0.4, z, speed, kind };
+    this.impactSerial++;
   }
 
   // Height and tilt from the ground under the wheels (or the bike's lean in turns).
@@ -421,9 +640,12 @@ export class Vehicle {
     this.tilt.rotation.set(this.pitch + (this.bodyPitch || 0), 0, this.roll + (this.bodyRoll || 0), 'XZY');
     if (this.kind === 'car') {
       for (const w of this.wheels) {
-        w.mesh.rotation.x = -this.spin;
-        w.pivot.rotation.y = w.front ? -this.steer : 0;
+        const contact = this.physicsActive && w.contact;
+        w.mesh.rotation.x = contact ? contact.spin : -this.spin;
+        w.pivot.rotation.y = contact ? -contact.steer : w.front ? -this.steer : 0;
+        w.pivot.position.y = w.baseY + (contact ? clamp(contact.travel, -this.physics.p.sag, 0.20) : 0);
       }
+      if (this._world) this._seatTires(this._world);
     } else {
       const b = this.bike;
       for (const w of b.wheels) w.rotation.x = this.spin;
@@ -432,10 +654,44 @@ export class Vehicle {
     }
   }
 
+  _seatTires(world) {
+    // Solve along the tilted suspension axis, after steering and body pitch/roll.
+    // Sampling here also removes the one-physics-step lag when climbing a slope.
+    for (let pass = 0; pass < 2; pass++) {
+      let bottomed = 0;
+      this.root.updateWorldMatrix(true, true);
+      for (const w of this.wheels) {
+        w.pivot.position.y = w.baseY;
+        w.pivot.updateWorldMatrix(true, true);
+        w.pivot.getWorldPosition(_contactP);
+        _axle.set(1, 0, 0).transformDirection(w.pivot.matrixWorld);
+        _suspension.set(0, 1, 0).transformDirection(w.pivot.parent.matrixWorld);
+        let h = world.groundAt(_contactP.x, _contactP.z, this.y, _contactN);
+        const deck = world.deckAt(this.x, this.z, this.y);
+        if (deck !== null && h < deck - 1.5) h = deck;
+        const support = tireSupport(_contactN, _axle, w.radius, w.halfWidth);
+        const travel = (h + support + 0.008 - _contactP.y) * _contactN.y / Math.max(0.25, _contactN.dot(_suspension));
+        w.pivot.position.y = w.baseY + Math.max(-this.physics.p.sag, travel);
+        bottomed = Math.max(bottomed, (travel - 0.20) * _suspension.y);
+      }
+      if (bottomed <= 0.001 || pass === 1) break;
+      // A fully compressed suspension is a hard contact, not permission to sink the
+      // chassis through the road. This constraint leaves airborne droop untouched.
+      this.y += bottomed; this.root.position.y = this.y;
+      this.physics.vy = Math.max(0, this.physics.vy);
+    }
+  }
+
   // Set from a remote player's state (no physics).
-  follow(x, z, y, yaw, speed, dt) {
+  follow(x, z, y, yaw, speed, dt, world = null) {
     Object.assign(this, { x, z, yaw, speed });
+    this.physicsActive = false;
     this.y = y;
+    if (world) {
+      this._world = world;
+      if (this.physics) this.physics.settle(this, this._sampleRoad(world, 0).map(s => s.height));
+      else this._ground(world, dt, true);
+    }
     this.spin -= (speed * dt) / this.wheelR;
     this._sync();
   }

@@ -125,6 +125,7 @@ export class FarView {
     }
     this.center = { x: cx, z: cz };
     this.ready = true;
+    this.terrain.prune(cx, cz, OUTER);
   }
 
   // Lowest ground within ~1.5 km of (x, z) (for how high the player is above the surroundings).

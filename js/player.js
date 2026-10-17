@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { clamp, damp, lerp, angleDelta } from './util.js';
 
-export const WALK = 2.2;
+export const WALK = 1.6;
 export const RUN = 5.6;
 export const SPRINT = 9;
 const JUMP_V = 5.2;
@@ -26,6 +26,8 @@ export class Player {
     this.vehicle = null;        // the car or bike being driven
     this._look = new THREE.Vector3();
     this._cam = new THREE.Vector3();
+    this.cameraLead = 0;
+    this.lookBack = false;
   }
 
   spawn(x, z, yaw) {
@@ -63,7 +65,7 @@ export class Player {
     if (!v) return null;
     const [rx, rz] = v.right, side = v.kind === 'car' ? 1.5 : 0.8;
     const [x, z] = this.world.resolveCircle(v.x - rx * side, v.z - rz * side, RADIUS, v);
-    v.speed = 0; v.steer = 0; v.driver = null;
+    v.stop(); v.driver = null;
     this.world.obstacles.add(v);
     this.vehicle = null;
     if (this._charParent) this._charParent.add(this.char.root);
@@ -79,6 +81,8 @@ export class Player {
   }
 
   update(dt, input) {
+    this.input = input;
+    this.lookBack = !!(this.vehicle && input.lookBack);
     if (this.vehicle) { this._drive(dt, input); return; }
     const w = this.world;
 
@@ -117,12 +121,12 @@ export class Player {
       this.pos.y += this.vel.y * dt;
       if (this.pos.y <= ground && this.vel.y <= 0) { this.pos.y = ground; this.vel.y = 0; this.onGround = true; }
     } else {
-      this.pos.y = damp(this.pos.y, ground, 22, dt);
+      this.pos.y = Math.max(ground, damp(this.pos.y, ground, 22, dt));
     }
 
     this.char.root.position.copy(this.pos);
     this.char.root.rotation.y = this.yaw;
-    this.char.update(dt, this.speed, !this.onGround);
+    this.char.update(dt, this.speed, !this.onGround, w);
 
     this._updateCamera(dt);
   }
@@ -133,14 +137,16 @@ export class Player {
     this.camYaw -= input.lookX;
     this.camPitch = clamp(this.camPitch + input.lookY, -0.3, 1.2);
     this.camDist = clamp(this.camDist + input.zoom, 2.5, 25);
-    v.drive(dt, { throttle: input.fwd, steer: input.right, brake: input.brake, boost: input.boost }, this.world);
+    v.drive(dt, { throttle: input.fwd, steer: input.right, brake: input.brake, boost: input.boost,
+      wet: input.wet || 0, snow: input.snow || 0 }, this.world);
     // The camera swings back behind the vehicle while it moves, unless you're looking around.
     if (input.lookX) this._lookT = 1.5;
     else this._lookT = Math.max(0, (this._lookT || 0) - dt);
     if (Math.abs(v.speed) > 1 && !this._lookT) this.camYaw += angleDelta(this.camYaw, v.yaw) * (1 - Math.exp(-2.5 * dt));
     this.pos.set(v.x, v.y, v.z);
     this.yaw = v.yaw;
-    this.speed = Math.abs(v.speed);
+    this.speed = Math.hypot(v.speed, v.slip);
+    if (v.kind === 'bike') this.char.pedalAngle = v.bike.crank.rotation.x;
     this.char.update(dt, this.speed, false);
     this._updateCamera(dt);
   }
@@ -148,18 +154,26 @@ export class Player {
   _updateCamera(dt) {
     const w = this.world;
     const look = this._look.set(this.pos.x, this.pos.y + HEAD, this.pos.z);
-    const rx = Math.cos(this.camYaw), rz = -Math.sin(this.camYaw);
+    const yaw = this.camYaw + (this.lookBack ? Math.PI : 0);
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    // A little room ahead of the car, without moving the user's chosen camera angle.
+    const v = this.vehicle;
+    this.cameraLead = damp(this.cameraLead, v && !this.lookBack ? clamp(v.speed * 0.09, -0.7, 2.5) : 0, 4, dt);
+    if (v) { const [fx, fz] = v.fwd; look.x += fx * this.cameraLead; look.z += fz * this.cameraLead; }
     const shoulder = this.vehicle ? 0 : 0.45 * clamp(this.camDist / 3.5, 0.3, 1);
     look.x += rx * shoulder; look.z += rz * shoulder;
 
     const cp = Math.cos(this.camPitch), sp = Math.sin(this.camPitch);
-    const dx = Math.sin(this.camYaw) * cp, dy = sp, dz = Math.cos(this.camYaw) * cp;
+    const dx = Math.sin(yaw) * cp, dy = sp, dz = Math.cos(yaw) * cp;
 
     // Pull the camera in if a building is between the head and the camera.
     let dist = this.camDist;
     for (let t = 0.4; t <= this.camDist; t += 0.25) {
       const x = look.x + dx * t, y = look.y + dy * t, z = look.z + dz * t;
-      if (w.heightAt(x, z) > y - 0.3) { dist = Math.max(0.5, t - 0.4); break; }
+      const b = w.buildingAt(x, z);
+      // Missing buildings have no height, even below the world's elevation datum.
+      const wall = b?.solid && y + 0.3 > b.base && y - 0.3 < (b.top ?? b.base + b.height);
+      if (wall || w.elevation(x, z) > y - 0.25) { dist = Math.max(0.5, t - 0.4); break; }
     }
     this.camActual = dist < this.camActual ? dist : damp(this.camActual, dist, 6, dt);
     const d = this.camActual;

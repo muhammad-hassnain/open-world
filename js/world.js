@@ -408,8 +408,16 @@ export class World {
 
   // Height of the walkable surface: terrain, plus the curb height on sidewalks. With y (the
   // current height of whoever asks), bridge and ramp decks count too.
-  groundAt(x, z, y = null) {
+  groundAt(x, z, y = null, normal = null) {
+    for (const c of this.near(x, z)) {
+      const h = c.surface?.heightAt(x, z, y, normal);
+      if (h !== null && h !== undefined) return h;
+    }
+    // Before geometry streams in, retain a terrain/deck fallback. Once built, contact
+    // queries above use the visible triangles, including asphalt and path thickness.
     const e = this.elevation(x, z);
+    if (normal) normal.set(this.elevation(x - 0.2, z) - this.elevation(x + 0.2, z), 0.4,
+      this.elevation(x, z - 0.2) - this.elevation(x, z + 0.2)).normalize();
     if (y !== null) {
       const d = this.deckAt(x, z, y);
       if (d !== null && d > e - 0.5) return d;
@@ -419,7 +427,7 @@ export class World {
         if (closestOnSeg(x, z, s.ax, s.az, s.bx, s.bz).d <= s.hw) return e + SIDEWALK_Y;
       }
     }
-    return e;
+    return e + (this.onRoad(x, z) ? DECK_Y : 0);
   }
 
   // True on a raised sidewalk.
@@ -486,15 +494,27 @@ export class World {
 
   // Push a circle of radius r out of building/car polygons, round colliders and obstacles
   // (except `ignore`, e.g. the vehicle being driven). `rough`: only buildings and vehicles with a
-  // driver count (police push through traffic, parked cars, trees and posts).
-  resolveCircle(x, z, r, ignore = null, rough = false) {
+  // driver or active car physics count (police push through traffic, parked cars, trees and posts).
+  resolveCircle(x, z, r, ignore = null, rough = false, contacts = null) {
+    // Optional hull contacts for vehicle impulses; ordinary walkers only need the corrected point.
+    const contact = (px, pz, other = null) => {
+      if (!contacts) return;
+      const d = Math.hypot(x - px, z - pz);
+      if (d < 1e-6) return;
+      const nx = (x - px) / d, nz = (z - pz) / d;
+      contacts.push({ x: x - nx * r, z: z - nz * r, nx, nz, other });
+    };
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
       for (const ob of this.obstacles) {
-        if (ob === ignore || (rough && !ob.driver)) continue;
+        if (ob === ignore || (rough && !ob.driver && !ob.physicsActive)) continue;
         for (const c of ob.circles()) {
           const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), m = r + c.r;
-          if (d < m) { const l = d || 1e-6; x = c.x + (dx / l) * m; z = c.z + (dz / l) * m; moved = true; }
+          if (d < m) {
+            const px = x, pz = z, l = d || 1e-6;
+            x = c.x + (dx / l) * m; z = c.z + (dz / l) * m;
+            contact(px, pz, ob); moved = true;
+          }
         }
       }
       for (const ch of this.near(x, z, r + 0.5)) {
@@ -513,6 +533,7 @@ export class World {
               }
             }
             if (!best) continue;
+            const px = x, pz = z;
             if (inside) {
               const dx = best.x - x, dz = best.z - z, l = Math.hypot(dx, dz) || 1e-6;
               x = best.x + (dx / l) * r; z = best.z + (dz / l) * r; moved = true;
@@ -520,14 +541,16 @@ export class World {
               const dx = x - best.x, dz = z - best.z, l = best.d || 1e-6;
               x = best.x + (dx / l) * r; z = best.z + (dz / l) * r; moved = true;
             }
+            contact(px, pz);
           }
         }
         if (!rough) for (const c of ch.circles.near(x, z, r + 0.5)) {
           if (c.off) continue;
           const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), m = r + c.r;
           if (d < m) {
-            const l = d || 1e-6;
+            const px = x, pz = z, l = d || 1e-6;
             x = c.x + (dx / l) * m; z = c.z + (dz / l) * m; moved = true;
+            contact(px, pz);
           }
         }
       }

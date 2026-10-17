@@ -84,7 +84,7 @@ export class SpeedCams {
   }
 
   _camera(it, v) {
-    const ms = Math.abs(v.speed);
+    const ms = v.groundSpeed;
     if (ms < 4) return;
     const best = loadBest(it.id);
     const rec = ms > best;

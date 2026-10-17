@@ -367,6 +367,8 @@ export class Atmosphere {
     const p = camera.position;
     // Rain and snow around the camera.
     const wind = this.weatherMode === 'live' && this.live ? this.live.windSpeed / 3.6 : 3;
+    this.materials.water.userData.waveTime.value = time;
+    this.materials.water.userData.waveStrength.value = 0.035 + Math.min(wind, 12) * 0.005;
     const wdir = (((this.live?.windDir ?? 240) + 180) * Math.PI) / 180;  // blowing toward
     for (const [obj, amt] of [[this.rain, this.shown.rain], [this.snow, this.shown.snow]]) {
       obj.visible = amt > 0.02;
@@ -496,8 +498,11 @@ export class Atmosphere {
       e.top.value.copy(top); e.horizon.value.copy(horizon); e.ground.value.copy(new THREE.Color('#6d7a55').multiplyScalar(lerp(1, 0.15, this.night)));
       e.sunDir.value.copy(this.sunDir); e.glow.value.copy(u.glow.value); e.sunColor.value.copy(u.sunColor.value);
       e.sunVisible.value = 0; e.clouds.value = 0; e.stars.value = 0;
-      const old = this.scene.environment;
-      this.scene.environment = this._pmrem.fromScene(this._env.scene, 0.02).texture;
+      const old = this._envTarget;
+      this._envTarget = this._pmrem.fromScene(this._env.scene, 0.02);
+      this.scene.environment = this._envTarget.texture;
+      // Dispose the target, including its framebuffer/depth attachment, not just
+      // its color texture. Otherwise every weather/time change retains GPU memory.
       if (old) old.dispose();
     }
   }

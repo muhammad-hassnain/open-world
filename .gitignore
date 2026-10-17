@@ -3,3 +3,6 @@ __pycache__/
 screenshots/
 .wrangler/
 node_modules/
+
+# Local development history
+/LOCAL_CHANGELOG.md

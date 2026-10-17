@@ -26,6 +26,11 @@ import { RoadSigns } from './roadsigns.js';
 import { Arcade } from './arcade.js';
 import { SpeedCams } from './speedcams.js';
 import { Races } from './races.js';
+import { DrivingEffects } from './drivingfx.js';
+import { Soundscape } from './soundscape.js';
+import { updateTrees, updateTreeDetail } from './trees.js';
+import { Pedestrians } from './pedestrians.js';
+import { optimizeLighting, RenderQuality } from './rendering.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -38,9 +43,13 @@ const MOBILE = matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoin
 const START = { lat: 38.54428, lon: -121.7438, bearing: 0 };
 
 // ---------- renderer / scene ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
+optimizeLighting();
+// Standard depth allows early fragment rejection on GPUs. The former logarithmic
+// fragment depth forced hidden surfaces through expensive lighting as well.
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, MOBILE ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+const quality = new RenderQuality(renderer, MOBILE);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -52,7 +61,7 @@ const touch = new TouchControls(renderer.domElement, {
 if (MOBILE) touch.enable();
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 30000);  // far view: ~20 km
+const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.3, 30000);  // far view: ~20 km
 
 // Ground beyond the loaded chunks, so the horizon never shows a void.
 const farGround = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: GROUND_COLOR, roughness: 1 }));
@@ -63,11 +72,14 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  quality.resize();
 });
 
 const materials = makeMaterials(renderer);
 // Sky, sun, fog, weather and night lighting (atmosphere.js).
 const atmo = new Atmosphere({ renderer, scene, materials, mobile: MOBILE });
+const drivingFX = new DrivingEffects(scene, MOBILE);
+const pedestrians = new Pedestrians(scene, MOBILE);
 const minimap = new MiniMap($('minimap'));
 const profile = loadProfile();
 const character = new Character(profile.look);
@@ -103,6 +115,7 @@ scene.add(character.root);
 
 // ---------- session state ----------
 let mode = 'boot';             // 'globe' | 'loading' | 'street'
+let rearHeld = false;
 let session = 0;
 let frame = null, world = null, chunks = null, labels = null, player = null, spawn = null, traffic = null, police = null, far = null;
 let globe = null;
@@ -112,6 +125,7 @@ const nav = new Navigator($('nav'));
 nav.onChange = (line) => { if (globe) globe.setRoute(line); };
 
 function setMode(m) {
+  rearHeld = false;
   mode = m;
   document.body.dataset.mode = m;
   if (m !== 'street') { if (labels) labels.hideAll(); setOverlay(false); touch.reset(); closePhotos(); }
@@ -182,6 +196,9 @@ async function enterStreet(lat, lon, bearing = 0) {
   if (roadSigns) roadSigns.clear();
   minimap.clear();
   clearVehicles();
+  drivingFX.clear();
+  pedestrians.clear();
+  sound.reset();
   character.root.visible = false;
 
   frame = new Frame(lat, lon);
@@ -191,6 +208,7 @@ async function enterStreet(lat, lon, bearing = 0) {
   world = new World(frame, terrain);
   if (traffic) traffic.dispose();
   traffic = new Traffic({ scene, world });
+  traffic.onHorn = c => sound.horn(c);
   if (police) police.dispose();
   traffic.miles = milesThere;
   police = new Police({
@@ -353,7 +371,7 @@ document.addEventListener('mousemove', (e) => {
 renderer.domElement.addEventListener('mousedown', () => { if (dragLook) dragging = true; else if (mode === 'street' && !locked) startPlaying(); });
 window.addEventListener('mouseup', () => { dragging = false; });
 renderer.domElement.addEventListener('wheel', (e) => { zoomAcc += e.deltaY * 0.004; }, { passive: true });
-window.addEventListener('blur', () => { keys.clear(); sprintKey = false; });
+window.addEventListener('blur', () => { keys.clear(); sprintKey = false; rearHeld = false; sound.quiet(); siren.set(0); });
 $('play').addEventListener('click', startPlaying);
 touch.onEnable = () => { if (mode === 'street') { playing = true; setOverlay(false); } };
 $('to-globe').addEventListener('click', () => openGlobe('globe'));
@@ -507,8 +525,10 @@ let myCar = null, myBike = null;
 
 // Police (police.js): one siren for the whole session; sound needs a user gesture to start.
 const siren = new Siren();
+const sound = new Soundscape(siren);
 try { siren.on = localStorage.getItem('openworld.sound') !== 'off'; } catch { /* storage unavailable */ }
-for (const ev of ['keydown', 'pointerdown', 'touchstart']) window.addEventListener(ev, () => siren.unlock(), { passive: true });
+for (const ev of ['keydown', 'pointerdown', 'touchstart']) window.addEventListener(ev, () => sound.unlock(), { passive: true });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { sound.quiet(); siren.set(0); } });
 
 // Caught: out of the car, which is impounded.
 function busted() {
@@ -672,15 +692,15 @@ function updateDriveHint() {
   let html = '';
   if (player && player.vehicle) {
     const v = player.vehicle, miles = showMiles();
-    const speed = Math.round(Math.abs(v.speed) * (miles ? MPH_PER_MS : KMH_PER_MS));
+    const speed = Math.round(v.groundSpeed * (miles ? MPH_PER_MS : KMH_PER_MS));
     const rd = world.nearestRoad(v.x, v.z, 12, (r) => r.kind === 'car' || r.kind === 'service');
     let sign = '', over = false;
     if (rd && v.kind === 'car') {
       const lim = speedLimit(rd.road, milesThere);
-      over = Math.abs(v.speed) > lim.ms * 1.08;
+      over = v.groundSpeed > lim.ms * 1.08;
       sign = milesThere ? `<span class="limit us"><small>SPEED<br>LIMIT</small>${lim.value}</span>` : `<span class="limit eu">${lim.value}</span>`;
     }
-    html = `${sign}${escapeHtml(v.spec.label)} &nbsp; <b class="${over ? 'over' : ''}">${speed}</b> ${miles ? 'mph' : 'km/h'}${touch.enabled ? '' : (v.kind === 'car' ? ' &nbsp; <kbd>Shift</kbd> nitrous' : '') + ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> brake'}`;
+    html = `${sign}${escapeHtml(v.spec.label)} &nbsp; <b class="${over ? 'over' : ''}">${speed}</b> ${miles ? 'mph' : 'km/h'}${touch.enabled ? '' : (v.kind === 'car' ? ' &nbsp; <kbd>Shift</kbd> nitrous &nbsp; <kbd>S</kbd> brake/reverse' : '') + ' &nbsp; <kbd>F</kbd> get out &nbsp; <kbd>Space</kbd> ' + (v.kind === 'car' ? 'handbrake' : 'brake')}`;
   } else if (player) {
     const r = vehicleInReach();
     if (r) {
@@ -691,7 +711,8 @@ function updateDriveHint() {
     $('btn-use').classList.toggle('hidden', !r);
   }
   if (player && player.vehicle) { $('btn-use').textContent = 'Get out'; $('btn-use').classList.remove('hidden'); }
-  $('btn-jump').textContent = player && player.vehicle ? 'Brake' : 'Jump';
+  $('btn-jump').textContent = player?.vehicle?.kind === 'car' ? 'Handbrake' : player?.vehicle ? 'Brake' : 'Jump';
+  $('btn-horn').classList.toggle('hidden', player?.vehicle?.kind !== 'car');
   document.body.classList.toggle('driving', !!(player && player.vehicle));
   el.innerHTML = html;
   el.classList.toggle('show', !!html);
@@ -699,6 +720,9 @@ function updateDriveHint() {
 $('btn-car').addEventListener('click', () => summon('car'));
 $('btn-bike').addEventListener('click', () => summon('bike'));
 $('btn-use').addEventListener('click', useVehicle);
+$('btn-horn').addEventListener('click', () => { if (playing && player?.vehicle?.kind === 'car') sound.horn(); });
+$('btn-rear').addEventListener('pointerdown', e => { e.preventDefault(); rearHeld = true; $('btn-rear').setPointerCapture(e.pointerId); });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) $('btn-rear').addEventListener(ev, () => { rearHeld = false; });
 
 function startOrPause() {
   if (TEST || touch.enabled) playing = true; else setOverlay(true);
@@ -731,7 +755,18 @@ actions.KeyO = () => setVisible(!mp.wanted);
 actions.KeyV = () => summon('car');
 actions.KeyB = () => summon('bike');
 actions.KeyF = useVehicle;
+actions.KeyH = () => { if (playing && player?.vehicle?.kind === 'car') sound.horn(); };
 // Time and weather: live (the real ones there) or picked.
+function syncQualityButtons() {
+  for (const b of document.querySelectorAll('#render-quality button')) {
+    b.classList.toggle('on', b.dataset.v === quality.mode);
+    b.setAttribute('aria-pressed', String(b.dataset.v === quality.mode));
+  }
+}
+for (const b of document.querySelectorAll('#render-quality button')) b.addEventListener('click', () => {
+  quality.setMode(b.dataset.v); syncQualityButtons();
+});
+syncQualityButtons();
 function setTimeMode(m) { atmo.setTimeMode(m); syncAtmoButtons(); flash(`Time: ${m === 'live' ? 'live (local time there)' : m}`); }
 function setWeatherMode(m) { atmo.setWeatherMode(m); syncAtmoButtons(); flash(`Weather: ${m === 'live' ? 'live (real weather there)' : m}`); }
 function syncAtmoButtons() {
@@ -758,7 +793,8 @@ actions.KeyG = () => openGlobe('globe');
 let last = performance.now(), hudT = 0, miniT = 0, frames = 0, fpsT = 0, hashT = 0, farT = 0, lightT = 0;
 let cardId = null;
 function loop(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const elapsed = (now - last) / 1000;
+  const dt = Math.min(0.05, elapsed);
   last = now;
   if (flashT > 0) { flashT -= dt; if (flashT <= 0) $('flash').classList.remove('show'); }
 
@@ -774,6 +810,9 @@ function loop(now) {
       jump: active && (jumpQueued || tc.jump),
       brake: active && (k('Space') || tc.brake),
       boost: active && (k('ShiftLeft', 'ShiftRight') || tc.boost),
+      lookBack: active && (k('KeyC') || rearHeld),
+      wet: atmo.shown.rain,
+      snow: atmo.shown.snow,
       lookX: mouseDX * MOUSE_SENS + tc.lookX + (active ? ((k('KeyE') ? 1 : 0) - (k('KeyQ') ? 1 : 0)) * 2.2 * dt : 0),
       lookY: mouseDY * MOUSE_SENS + tc.lookY,
       zoom: zoomAcc + tc.zoom,
@@ -782,12 +821,13 @@ function loop(now) {
 
     // The crash cam slows the world down.
     const sdt = dt * (arcade ? arcade.timeScale : 1);
+    world.drivingWeather = { wet: atmo.shown.rain, snow: atmo.shown.snow };
     player.update(sdt, input);
     const p = player.pos;
     // Widen the view when sprinting, and with speed and nitrous when driving.
     const dv = player.vehicle;
     const fov = dv
-      ? FOV + 12 * Math.min(1, Math.max(0, (Math.abs(dv.speed) - 15) / 30)) + (dv.boosting ? 9 : 0)
+      ? FOV + 12 * Math.min(1, Math.max(0, (dv.groundSpeed - 15) / 30)) + (dv.boosting ? 9 : 0)
       : FOV + 7 * Math.min(1, Math.max(0, (player.speed - RUN) / (SPRINT - RUN)));
     if (Math.abs(camera.fov - fov) > 0.05) {
       camera.fov += (fov - camera.fov) * (1 - Math.exp(-4 * dt));
@@ -800,6 +840,8 @@ function loop(now) {
     atmo.follow(p);
     atmo.sky.position.copy(camera.position);
     atmo.update(dt, { camera, world, player, traffic, time: now / 1000 });
+    updateTrees(now / 1000, atmo.weatherMode === 'live' ? (atmo.live?.windSpeed ?? 10.8) / 3.6 : 3, atmo.live?.windDir ?? 240);
+    updateTreeDetail(now / 1000, chunks.chunks, p, MOBILE);
     // Keep the background ground just below the lowest nearby terrain, so on a hilltop it doesn't
     // hover over the valley.
     farT -= dt;
@@ -823,6 +865,7 @@ function loop(now) {
     roadSigns.update(dt, p.x, p.z);
     mp.update(dt, player);
     traffic.update(sdt, player);
+    pedestrians.update(sdt, world, player, traffic, arcade.cam ? null : camera);
     police.update(sdt, player);
     arcade.update(dt, player);
     speedCams.update(sdt, player);
@@ -870,11 +913,15 @@ function loop(now) {
       const [lat, lon] = frame.toLatLon(p.x, p.z);
       history.replaceState(null, '', `#${lat.toFixed(6)},${lon.toFixed(6)}`);
     }
-    frames++; fpsT += dt;
+    frames++; fpsT += elapsed;
     if (fpsT > 0.5) { $('fps').textContent = `${Math.round(frames / fpsT)} fps`; frames = 0; fpsT = 0; }
     arcade.applyCamera(camera);
+    drivingFX.update(sdt, { world, player, camera, atmo, traffic });
+    sound.update(dt, { player, camera, world, weather: atmo.shown, active: active && document.hasFocus() });
+    if (!active || document.hidden || !document.hasFocus()) siren.set(0);
+    quality.update(elapsed, !document.hidden);
     renderer.render(scene, camera);
-  }
+  } else { sound.quiet(); siren.set(0); }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -882,7 +929,7 @@ requestAnimationFrame(loop);
 // Handle for automated checks and debugging in the console.
 window.game = {
   get world() { return world; }, get player() { return player; }, get labels() { return labels; },
-  get chunks() { return chunks; }, camera, renderer,
+  get chunks() { return chunks; }, camera, renderer, quality,
   setView(camYaw, camPitch, camDist) { player.camYaw = camYaw; player.camPitch = camPitch; if (camDist) player.camDist = camDist; },
   teleport(x, z, yaw = player.yaw) { player.spawn(x, z, yaw); },
   press(code, down) { if (down) keys.add(code); else keys.delete(code); },
@@ -895,7 +942,7 @@ window.game = {
   vehicles,
   get traffic() { return traffic; },
   get police() { return police; },
-  atmo,
+  atmo, drivingFX, pedestrians, sound,
   get far() { return far; },
   scene,
   get profile() { return profile; },

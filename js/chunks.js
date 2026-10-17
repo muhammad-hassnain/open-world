@@ -13,6 +13,8 @@ import { clipRing, clipLine } from './clip.js';
 import { ChunkIndex, classifyRoad, roadHalfWidth } from './world.js';
 import { planBuildings, buildBuildings } from './buildings.js';
 import { buildStreets } from './streets.js';
+import { GroundSurface } from './surface.js';
+import { indexGeometry } from './geometry.js';
 import { elevateRoads } from './bridges.js';
 import { buildTrees, buildFurniture, buildParkedCars } from './props.js';
 import { buildLights } from './traffic.js';
@@ -36,6 +38,7 @@ export class ChunkManager {
     this.pumping = null;
     this.disposed = false;
     this.stats = { tiles: 0, full: 0, lite: 0 };
+    this.pruneAt = 0;
   }
 
   update(x, z) {
@@ -64,6 +67,7 @@ export class ChunkManager {
     this.disposed = true;
     for (const ch of this.chunks.values()) this._drop(ch);
     this.chunks.clear();
+    this.tiles.clear();
   }
 
   // ---------- planning ----------
@@ -95,6 +99,17 @@ export class ChunkManager {
     const { x, z } = this.player;
     for (const ch of [...this.chunks.values()]) {
       if (distToRect(x, z, ch.rect) > DROP_R) { this._drop(ch); this.chunks.delete(ch.key); }
+    }
+    if (performance.now() >= this.pruneAt) {
+      this.pruneAt = performance.now() + 5000;
+      // Retain all live chunk sources, plus recently visited tiles (up to 12).
+      const live = new Set([...this.chunks.values()].map(ch => `${DATA_ZOOM}/${ch.tx >> SHIFT}/${ch.ty >> SHIFT}`));
+      for (const key of this.tiles.keys()) {
+        if (this.tiles.size <= 12) break;
+        if (!live.has(key)) this.tiles.delete(key);
+      }
+      this.stats.tiles = this.tiles.size;
+      this.terrain?.prune(x, z, 4000); // includes complete data tiles for bridge preparation
     }
     const want = this._wanted();
     for (const w of want) {
@@ -140,7 +155,10 @@ export class ChunkManager {
         }));
       this.stats.tiles = this.tiles.size;
     }
-    return this.tiles.get(key);
+    const tile = this.tiles.get(key);
+    // A cached map tile can outlive its raw elevation samples. Reload those on a
+    // return visit before rebuilding, rather than accidentally flattening terrain.
+    return this.terrain ? Promise.all([tile, this.terrain.ensure(tx, ty)]).then(([data]) => data) : tile;
   }
 
   async _index(ch) {
@@ -171,8 +189,14 @@ export class ChunkManager {
     await planBuildings(this.world, ci.buildings, { streets: full, rect: ci.rect, budget });
     if (!this._alive(ch)) return;
     const buildingMeshes = await buildBuildings(ci.buildings, this.materials, { lite: !full, rect: ci.rect, budget });
+    for (const mesh of buildingMeshes) await indexGeometry(mesh.geometry, budget);
     if (buildingMeshes.length) group.add(...buildingMeshes);  // add() with nothing logs an error
+    if (!this._alive(ch)) { disposeGroup(group); return; }
     const streets = await buildStreets(this.world, ci, this.materials, { lite: !full, budget });
+    for (const mesh of streets.meshes) await indexGeometry(mesh.geometry, budget);
+    const surface = await GroundSurface.build(streets.meshes, budget);
+    if (!this._alive(ch)) { for (const mesh of streets.meshes) mesh.geometry.dispose(); disposeGroup(group); return; }
+    ci.surface = surface;
     if (streets.meshes.length) group.add(...streets.meshes);
     if (full) {
       await buildTrees(this.world, ci, streets.spots, group, budget);

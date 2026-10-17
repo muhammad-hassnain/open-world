@@ -43,7 +43,7 @@ export class Terrain {
           console.warn(`[terrain] ${x}/${y} unavailable, treating as flat`, e);
           this.tiles.set(key, null);
         }
-      })());
+      })().finally(() => this.pending.delete(key)));
     }
     return this.pending.get(key);
   }
@@ -79,6 +79,18 @@ export class Terrain {
 
   // Height relative to the walk-in point.
   at(x, z) { return this.raw(x, z) - this.base; }
+
+  // Geometry retains its sampled heights; only nearby raw tiles need to stay in
+  // memory. A one-tile margin keeps bilinear samples across retained edges intact.
+  prune(x, z, radius) {
+    const a = this.frame.tileAt(x - radius, z - radius, this.zoom);
+    const b = this.frame.tileAt(x + radius, z + radius, this.zoom);
+    for (const key of this.tiles.keys()) {
+      const tx = Math.floor(key / 65536), ty = key % 65536;
+      if (tx < a.x - 1 || tx > b.x + 1 || ty < a.y - 1 || ty > b.y + 1) this.tiles.delete(key);
+    }
+    this._lt = null;
+  }
 
   // Water surfaces: never below sea level (the tiles include sea-floor depths).
   water(x, z) { return Math.max(this.raw(x, z), 0) - this.base; }

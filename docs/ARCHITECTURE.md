@@ -75,11 +75,16 @@ How builders use it:
 - Layers cut into different triangles can cross each other by a few centimeters on slopes.
   Instead of raising them, each ground material is drawn slightly toward the camera along the
   view ray (`layered()` in `materials.js`), in order ground < grass/water < gravel/lots/pavers <
-  roads < sidewalks < paint. `polygonOffset` doesn't work with the logarithmic depth buffer.
+  roads < sidewalks < paint. This also handles intersections between independently draped layers.
+  People and cars use the same depth frame as the highest street layer, so roads cannot
+  draw over correctly grounded shoes or tires. This does not change geometry or shadows.
 - **Buildings** stand on one base height: the highest ground under the footprint, or the middle
   of the range on steep lots (more than 6 m of fall), so they never float. Walls on the downhill
   side get a concrete foundation down to the ground. `b.base` and `b.top` are absolute heights.
-- **Props** sit on `groundAt`; parked cars are tilted to the slope along the curb.
+- **Props** sit on `groundAt`; parked and traffic cars fit all four tire contacts, including
+  the road's cross-slope. Each built chunk owns a spatial index of its rendered street
+  triangles (`surface.js`). Contact queries use those exact faces and normals, with
+  terrain/deck fallbacks while chunks load; bridge queries retain the caller's height.
 - **Labels** and street signs add the ground height at their position.
 
 Bridges and elevated highways still follow the ground (see the roadmap); tunnels are not drawn.
@@ -139,7 +144,7 @@ grid. Main queries:
 | --- | --- |
 | `resolveCircle(x, z, r)` | Pushes a circle out of building/car polygons and round colliders. Used for movement. |
 | `elevation(x, z)` | Terrain height relative to the walk-in point (`0` without terrain). |
-| `groundAt(x, z)` | Walkable surface height: elevation, plus `0.15` on a raised sidewalk. Used for movement and placing props. |
+| `groundAt(x, z, y?, normal?)` | Height of the rendered street/sidewalk triangles, with optional support normal. Caller height selects reachable bridge decks; terrain is the fallback before a chunk is built. |
 | `onSidewalk(x, z)` | Whether a point is on a raised sidewalk (use this, not `groundAt > 0`, which is meaningless on hills). |
 | `buildingAt`, `heightAt` | Building under a point and its height. Camera and label occlusion. |
 | `nearestRoad`, `onRoad`, `nearPath`, `nearSidewalk` | Street geometry lookups used by builders and HUD. |
@@ -175,13 +180,37 @@ shows the first photo and its credit; `P` (or tapping the card) opens a full-scr
 
 ## Characters (`character.js`, `profile.js`)
 
-The first time someone walks in, a panel asks for a name and a look (man or woman in a suit);
-both are kept in localStorage and can be changed under About. Each look is a skinned glTF from
-Quaternius' CC0 packs (`assets/characters/`), packed by `tools/pack_character.py` to keep only
-the Idle, Walk and Run (and Wave) clips. `Character` clones the model, blends the three clips by
-the speed actually moved, plays them at the rate that keeps the feet from sliding, holds a
-stride in the air and leans forward when sprinting. Until a model has loaded, a small
-procedural figure stands in, so walking in never waits for it.
+The profile offers four textured CC0 Innerscene/MakeHuman people: Sam, Maya, Harper and Jordan.
+The legacy `man`/`woman` IDs map to Sam/Maya. The name and choice remain in localStorage.
+`tools/prepare_people.py` prepares the downloaded locomotion collections offline: geometric
+simplification preserving UV seams and skin weights, texture resizing, removal of held props
+and microscopic geometry, and retaining Idle/Walk/Jog/Run. The browser has no new dependencies.
+Full meshes have about 23–30k triangles; background meshes have about 11–14k. Texture files are
+local and shared between variants; a procedural figure is available while loading or on failure.
+
+`Character` clones the skeleton and shares geometry/materials. Population clothing tints clone
+only the affected materials. `dispose()` releases those materials and each clone's bone textures.
+Locomotion blends by actual speed, with walk/jog/run clips synchronized to one foot-contact phase.
+Two-bone leg positioning keeps feet under the hips, holds ground-contact speed against movement,
+and adds heel-to-toe roll and bent-knee recovery. Faster running shortens ground contact and adds
+flight time while keeping cadence below four steps per second. Shoulder swing follows the
+opposite leg's movement through the procedural stride, preserving the clips' elbow and wrist
+poses; it blends out for idle and airborne poses. The solver works before model
+scaling so pedestrian build variations keep connected joints. Footstep audio consumes the same
+contact counter; walking speed is 1.6 m/s. Idle phases are offset per person, with restrained head
+glances. Procedural edits restore the last unmodified mixer pose
+before each update; restoring bind rotations would break cached constant animation tracks.
+Grounded people fit each shoe to the surface normal and measured shoe bounds, with a pelvis
+adjustment and two-bone reach for slopes and curbs. Contact refreshes every frame even when
+pedestrian animation is throttled. Airborne and seated poses bypass foot grounding.
+Bicycle poses use analytic two-bone reach to the grips and crank, including separately rigged feet.
+The local and remote rider follow the actual bicycle pedal angle.
+With the local server running, `python3 tools/check_gait.py` checks hand/foot coordination
+and connected arm joints across all avatar and pedestrian variants (add `--channel chrome`
+to use an installed Chrome). It measures the posed skeleton through walking and running speeds.
+
+The relay accepts the four look IDs. Updating an existing hosted relay requires its normal,
+separate deployment; an older relay falls back to Sam for the two new IDs.
 
 ## Multiplayer (`multiplayer.js`, `relay/`)
 
@@ -200,14 +229,101 @@ second, and cleans names. Hidden players don't connect at all.
 
 `V` / `B` bring the player's car (to the right-hand lane of the nearest street) or bike (beside
 them); `F` gets into the nearest one, or into a parked car, which is taken off its chunk's
-instanced mesh and replaced by a drivable `Vehicle` of the same model. Driving is arcade: speed
-eases toward the throttle target (25 m/s car, 8 m/s bike), steering narrows with speed, the
-heading follows a bicycle model, and a few footprint circles are pushed out of buildings,
-parked cars, trees and other vehicles, bouncing on head-on hits. The ground under the wheels
-sets height, pitch and roll; bikes lean into turns. The camera chases behind the vehicle, and
+instanced mesh and replaced by a drivable `Vehicle` of the same model. Cars use `CarPhysics`
+(`carphysics.js`), an original force-based model in SI units, stepped at a fixed 120 Hz. Its
+four wheel contacts have combined longitudinal/lateral friction limits, slip-dependent adhesion,
+load sensitivity and Ackermann front steering. The tires generate yaw torque about the centre
+of mass; the heading no longer directly sets the direction of travel. Suspension springs and
+dampers determine individual wheel loads and body heave/pitch/roll, including load transfer,
+loss of contact over crests, and landing compression. Wheelbase, track and the collision footprint
+come from the car model. Bikes retain their kinematic steering and terrain following.
+Car meshes are aligned with the solver's centre of mass. After the physical step, each tire
+fits its actual radius and tread width to the road along the tilted suspension axis; exhausted
+compression constrains the body above the surface, while airborne wheels retain limited droop.
+The camera chases behind the vehicle, and
 while driving, chunks are requested ahead in the direction of travel. A car hides its driver; a
 bike carries the character in a pedaling pose. Other players' vehicles come through the relay
 as a `v` field and are drawn from the same models.
+
+`CAR_HANDLING` supplies independently tuned mass, centre-of-mass height, static front weight,
+front/rear drive split, grip, suspension and aerodynamic area per car. Five gear ratios, a torque
+curve, shift interruptions, an RPM limiter, rolling resistance and engine braking govern speed.
+Nitrous adds engine torque; it does not change the gearing. Reverse engages after braking to a
+near stop. Service braking has front bias and ABS (except the van); the rear handbrake bypasses
+ABS and can cause a full spin. There is no sideways-speed clamp, artificial slide recovery, or
+yaw assistance. Rain, snow, natural ground and flat tires change adhesion/resistance. Weather is
+shared through `world.drivingWeather`, including police and race rivals; their path controllers
+request curvature and reduce speed for available grip.
+
+`World.resolveCircle` optionally reports normals/contact points. Cars use those for impulses
+with mass and yaw inertia, including equal/opposite impulses between active vehicles. Each
+movement substep travels at most 0.4 m; bridge edges retain their railing constraint. Each impact
+increments `impactSerial`, with a short cooldown, so sound and particles consume the same event
+independently. Landings trigger impact sound without metal sparks. `Vehicle.stop()` resets
+momentum when parking, resetting a race grid or wrecking a police car.
+
+This is a heightfield vehicle model, not a general 3D rigid-body engine: the collision hull has
+no roof/side ground contacts, tilt is bounded to ±0.8 radians, and cars cannot fully roll over or
+deform. Instanced ambient traffic still follows road paths and acts as a collision obstacle;
+only active `Vehicle`s exchange dynamic impulses. Wheel spin is estimated from excess tractive
+force rather than a separate wheel angular-inertia solver. Physics concepts were studied in
+reVC's wheel/suspension/transmission code; its source and handling tables are not included.
+`node tools/check_carphysics.mjs` checks mechanical behavior and display-rate independence.
+
+The camera
+looks a little ahead of a moving car; `C` (or Rear view on touch) looks behind. Camera occlusion
+checks real building bounds and terrain, including locations below the world's elevation datum.
+
+## Driving effects (`drivingfx.js`)
+
+Driving effects (`drivingfx.js`) use four fixed-size batches: fading tire-track strips, smoke/spray
+billboards, additive light halos and impact sparks. Individual loaded wheel contacts leave tracks
+when their tire forces exceed grip on roads and bridge decks, using `groundAt(x, z, y)` and the
+ground material depth bias. Airborne wheels emit no tire effects. Marks expire
+after 28 simulation seconds; smoke drifts with the atmosphere's wind and is reduced in rain.
+The same puff pool supplies brief tire spray on wet roads and dust off-road. Sparks have a
+separate short-lived pool with gravity; none of the particles create collision objects.
+Halos follow car light anchors and street lamps, use depth testing and a bounded number of cached
+visibility checks, and add no scene lights. Mobile uses smaller pools. Changing places clears all
+effects and their visibility caches; the shared rendering buffers are reused.
+
+## Sound (`soundscape.js`)
+
+Original Web Audio synthesis supplies the player's engine (using the physics RPM and shift load), tire
+squeal and road noise, footsteps, impacts, horns and rain. It shares the siren's AudioContext,
+unlocked/resumed only after a user gesture, and the existing persisted sound toggle (`N`).
+Continuous voices are reused; at most eight transient sounds play at once. Traffic horns are
+distance-attenuated and panned relative to the camera, with a global cooldown. Pause, hidden
+tabs and the globe mute the soundscape. World changes stop pending transients.
+
+## Pedestrians (`pedestrians.js`)
+
+A reusable pool holds at most eight CC0 `Character`s (four on mobile). `people.js` is a
+small deterministic factory of appearance and behavior descriptors: stroller, commuter, walker
+and jogger templates choose clothes, proportions, phase, pace and pause duration. Each four slots
+include all four base characters. The pool uses the lighter meshes without extra shadow draws;
+animation updates run at 30 Hz nearby and 15 Hz at distance/on mobile, while movement is smooth.
+
+Initial paths come from full chunks' raised sidewalks and mapped footpaths. A sampled forward
+fan extends them around corners, checking buildings, roads, props and terrain steps. People ease
+into movement, pause occasionally, yield to the player, try to pass each other where there is
+room, and hurry away from approaching vehicles along safe paths. They do not cross roads or
+plan journeys to destinations. Leaving the area or changing worlds hides/reuses the pool.
+
+## Trees (`trees.js`, `props.js`)
+
+Existing mapped/derived tree placement and trunk colliders are unchanged. Shared, instanced
+geometry provides two shapes each of round broadleaf, columnar and conifer trees, with tapered
+branches, forks and root flares. Poly Haven CC0 bark and isolated photographic leaves/needles
+are stored in `assets/nature/`; `tools/fetch_nature.py` prepares them offline. The broadleaf atlas
+is explicitly masked to exclude the source mesh's UV padding, then composed into branching twigs.
+
+Cutout, depth-writing foliage has canopy normals and vertex shading. Lit and depth materials
+share the same wind deformation; time/wind follow atmosphere values. Bounds include wind sway.
+Every half-second, instance matrices are split into detailed nearby trees (65 m desktop / 40 m
+mobile, with 10 m hysteresis) and simpler distant trees. Only nearby trees cast shadows. All
+batches belong to their chunk, and chunk disposal frees the instance buffers while retaining
+shared materials and geometry. There is no per-tree animation loop or asset fetch during play.
 
 ## Traffic (`traffic.js`)
 
@@ -221,6 +337,10 @@ vehicle ahead, slows at junctions without lights and stops at red ones. Lights c
 the lamps drawn in full chunks and the cars agree. Traffic cars are drawn as instanced car
 models and are obstacles for the player; the player can get into one (`F`), which takes it out
 of traffic. Traffic is local to each player.
+
+The gap check looks up to 90 m ahead and ignores cars more than 2.5 m above or below the lane's local grade.
+Stopping distance limits the target speed; travel is capped by the remaining gap. Drivers
+occasionally honk after three seconds blocked, except when waiting at a red/yellow signal.
 
 ## Police (`police.js`)
 
@@ -279,12 +399,48 @@ concrete, corrugated metal) and roofs (shingles, clay tiles), plus untextured pl
 and water. Builders write each surface into a `MultiBuilder`, one merged mesh per material per
 chunk; vertex colors tint the textures (paint colors, roof colors). Texture coordinates come from
 world position, so textures line up across faces and chunk borders.
+Water adds two small animated normal ripples, driven by atmosphere time and wind, to move its
+reflections without displacing shorelines or adding a render pass.
 
 ## Rendering and performance
 
-One WebGL renderer with ACES tone mapping, an environment map baked from the sky gradient, logarithmic depth, PCF soft shadows from a sun that follows the player
+One WebGL renderer with ACES tone mapping, an environment map baked from the sky gradient, standard depth, PCF soft shadows from a sun that follows the player
 (±60 m), hemisphere light, gradient sky dome, fog from 120 to 620 m and a large ground plane under
-everything, kept just below the lowest nearby terrain so it never shows above a valley. Typical
-cost: 100–200 draw calls (one per material per chunk) and 0.4–1.1M triangles in flat cities
-(1.5–2.8M on steep hills) at 60 fps on a desktop GPU; a z14 tile decodes in 40–140 ms. The three.js loop stops rendering while the globe
-is open.
+everything, kept just below the lowest nearby terrain so it never shows above a valley. Standard
+depth permits early rejection of hidden fragments; the camera near plane is 0.3 m to preserve
+depth precision. Ground/contact view-space layering stays unchanged. The three.js loop stops
+rendering while the globe is open.
+
+`rendering.js` guards inactive/out-of-range point and spot light calculations in the pinned
+Three r160 lighting chunk. Light slots stay fixed, so day/night transitions do not recompile
+every material. Pixel comparisons against the original shader cover lights off/on, cutoff
+distances and spot cones. Recheck this patch when upgrading Three.
+
+`RenderQuality` defaults to automatic resolution, aiming for 45 fps to leave margin above 40.
+It lowers the 3D buffer in small steps after sustained slow frames, raises it after sustained
+headroom, ignores hidden-tab/long suspension samples, and never drops below one pixel per CSS
+pixel. The HUD stays native-resolution and no models/textures are removed. About → Graphics
+also offers the original maximum resolution (DPR capped at 2 desktop/1.5 mobile). This is a
+target, not a guarantee on every device or in every city. The FPS counter uses real elapsed
+time, separately from the 50 ms simulation step cap.
+
+Scenery normals and linear colors use normalized 16-bit buffers (HDR colors retain floats).
+`geometry.js` indexes byte-identical vertices with cooperative yields, preserving UV seams,
+normals, colors and every surface position. Trees use 256 m instance batches and parked cars 96 m
+for frustum culling. Tree instance buffers and bounds rebuild only when detail assignments
+change. Characters have conservative whole-body bounds instead of disabling culling.
+Off-screen pedestrians retain their behavior and movement but animate at 5 Hz without foot IK;
+their pose/contact is refreshed immediately when they reenter the camera frustum.
+
+Ground/roof texture instances are shared; full/distant character meshes share matching textures
+and release loader parser caches. Sky rebakes dispose the entire old PMREM render target.
+Data tiles retain live sources plus up to 12 cached tiles; raw street and far terrain tiles
+are pruned outside their useful area, with margins for edge interpolation.
+
+Checks (local server required, `--channel chrome` for installed Chrome):
+`python3 tools/check_geometry.py --channel chrome` checks lossless indexing, quantization
+precision, ground contacts, light pixels and resolution control.
+`python3 tools/check_rendering.py davis --channel chrome --min-fps 40` measures actual frame
+intervals at 1440×900 CSS pixels/DPR 2 and saves a screenshot; repeat for `paris` and `hill`,
+and use `--night` to check night lighting. Geometry and texture estimates exclude driver,
+render-target and browser overhead. Run benchmarks sequentially; concurrent GPU tests skew FPS.

@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rng, SpatialHash, pointInShape, pick } from './util.js';
 import { inRect } from './clip.js';
-import { carsLoaded, carType, parkedCarMesh } from './vehicles.js';
+import { treeAssets } from './trees.js';
+import { carsLoaded, carType, parkedCarMesh, fitParkedCar } from './vehicles.js';
 
 // ---------- shared geometry helpers ----------
 
@@ -28,11 +29,9 @@ function assets() {
   const vc = shared(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, envMapIntensity: 0.6 }));
   ASSETS = {
     vc,
-    leaf: shared(new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.9, envMapIntensity: 0.5 })),
-    trunk: shared(new THREE.MeshStandardMaterial({ color: '#6e5038', roughness: 0.95 })),
     lampHead: shared(new THREE.MeshStandardMaterial({ color: '#fff3cf', emissive: '#ffe7a8', emissiveIntensity: 0.35, roughness: 0.4 })),
     geo: Object.fromEntries(Object.entries({
-      ...treeGeometries(), lamp: lampGeometry(), lampHead: lampHeadGeometry(), bench: benchGeometry(),
+      lamp: lampGeometry(), lampHead: lampHeadGeometry(), bench: benchGeometry(),
       bikerack: bikeRackGeometry(), hydrant: hydrantGeometry(), bin: binGeometry(),
       carBody: carBodyGeometry(), carDetail: carDetailGeometry(),
     }).map(([k, g]) => [k, shared(g)])),
@@ -41,7 +40,7 @@ function assets() {
 }
 
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpT = new THREE.Quaternion(), tmpS = new THREE.Vector3(), tmpP = new THREE.Vector3();
-const Y_AXIS = new THREE.Vector3(0, 1, 0), Z_AXIS = new THREE.Vector3(0, 0, 1);
+const X_AXIS = new THREE.Vector3(1, 0, 0), Y_AXIS = new THREE.Vector3(0, 1, 0), Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 function instanced(geom, material, items, { cast = true, colors = null } = {}) {
   const mesh = new THREE.InstancedMesh(geom, material, Math.max(1, items.length));
@@ -49,6 +48,7 @@ function instanced(geom, material, items, { cast = true, colors = null } = {}) {
   items.forEach((it, i) => {
     tmpQ.setFromAxisAngle(Y_AXIS, it.rot || 0);
     if (it.tilt) tmpQ.multiply(tmpT.setFromAxisAngle(Z_AXIS, it.tilt)); // nose up/down along local +X
+    if (it.bank) tmpQ.multiply(tmpT.setFromAxisAngle(X_AXIS, -it.bank));
     tmpS.set(it.s ?? 1, it.s ?? 1, it.s ?? 1);
     tmpP.set(it.x, it.y || 0, it.z);
     tmpM.compose(tmpP, tmpQ, tmpS);
@@ -68,28 +68,7 @@ const yawX = (dx, dz) => Math.atan2(-dz, dx);
 
 // ---------- trees ----------
 
-const GREENS = ['#6fae4f', '#5f9e45', '#7cb85a', '#88bf5a', '#5a9a4a', '#9cc25a', '#6aa84f'];
-const FALL = ['#d9a441', '#c8742e', '#e0b84a'];
-const CONIFER = ['#3f7a45', '#4a8550', '#3b6f48'];
-
-function treeGeometries() {
-  const blob = (r, x, y, z, sy = 1) => {
-    const g = new THREE.IcosahedronGeometry(r, 1);
-    g.scale(1, sy, 1);
-    g.deleteAttribute('uv');
-    return at(g, x, y, z);
-  };
-  const cone = (r, h, y) => { const g = new THREE.ConeGeometry(r, h, 7); g.deleteAttribute('uv'); return at(g.toNonIndexed(), 0, y, 0); };
-  return {
-    round: merge([blob(2.2, 0, 4.2, 0, 0.85), blob(1.5, 1.3, 3.7, 0.5), blob(1.4, -1.1, 3.9, -0.6), blob(1.3, 0.2, 5.3, 0.3)]),
-    tall: merge([blob(1.6, 0, 5.0, 0, 1.7), blob(1.2, 0.5, 6.8, 0.2, 1.3)]),
-    conifer: merge([cone(2.0, 3.4, 3.0), cone(1.5, 2.8, 4.6), cone(0.9, 2.2, 6.0)]),
-    trunk: at(new THREE.CylinderGeometry(0.13, 0.2, 3.4, 6), 0, 1.7, 0),
-  };
-}
-
 export async function buildTrees(world, chunk, spots, group, budget) {
-  const A = assets();
   const rect = chunk.rect;
   const accepted = [];
   const hash = new SpatialHash(8);
@@ -125,15 +104,38 @@ export async function buildTrees(world, chunk, spots, group, budget) {
 
   for (const t of accepted) {
     t.rot = R() * Math.PI * 2;
+    t.variant = R() < 0.5 ? 0 : 1;
     t.y = world.groundAt(t.x, t.z) - 0.05;
     chunk.addCircleCollider(t.x, t.z, 0.22 * t.s);
   }
-  group.add(instanced(A.geo.trunk, A.trunk, accepted));
-  for (const kind of ['round', 'tall', 'conifer']) {
-    const items = accepted.filter((t) => t.kind === kind);
-    if (!items.length) continue;
-    const colors = items.map(() => new THREE.Color(kind === 'conifer' ? pick(CONIFER, R()) : R() < 0.12 ? pick(FALL, R()) : pick(GREENS, R())));
-    group.add(instanced(A.geo[kind], A.leaf, items, { colors }));
+  for (const kind of ['round', 'tall', 'conifer']) for (let variant = 0; variant < 2; variant++) {
+    if (budget) await budget.tick();
+    const selected = accepted.filter(t => t.kind === kind && t.variant === variant);
+    if (!selected.length) continue;
+    // Small spatial batches let the frustum reject trees behind the camera while
+    // retaining instancing. A chunk can span almost half a kilometer.
+    const cells = new Map();
+    for (const t of selected) {
+      const key = `${Math.floor(t.x / 256)},${Math.floor(t.z / 256)}`;
+      if (!cells.has(key)) cells.set(key, { items: [], colors: [] });
+      const cell = cells.get(key);
+      cell.items.push(t);
+      cell.colors.push(new THREE.Color().setHSL(0.25 + R() * 0.05, 0.08 + R() * 0.12, 0.85 + R() * 0.14));
+    }
+    for (const { items, colors } of cells.values()) {
+      const meshes = low => {
+        const a = treeAssets(kind, variant, low);
+        const wood = instanced(a.wood, a.bark, items, { cast: !low });
+        const leaf = instanced(a.leaves, a.mat, items, { colors, cast: !low });
+        wood.customDepthMaterial = a.woodDepth; leaf.customDepthMaterial = a.depth;
+        wood.name = `tree-branches-${kind}`; leaf.name = `tree-foliage-${kind}`;
+        group.add(wood, leaf);
+        return [wood, leaf];
+      };
+      const near = meshes(false), far = meshes(true);
+      near.forEach(m => { m.count = 0; m.visible = false; });
+      (group.userData.treeBatches ||= []).push({ items, colors, near, far, matrices: far[0].instanceMatrix.array.slice() });
+    }
   }
   return accepted;
 }
@@ -245,7 +247,7 @@ export function buildParkedCars(world, chunk, spots, group) {
   const items = [];
   for (const c of spots.cars) {
     if (world.blocked(c.x, c.z, 1.0)) continue;
-    const front = world.elevation(c.x + c.ux * 2, c.z + c.uz * 2), back = world.elevation(c.x - c.ux * 2, c.z - c.uz * 2);
+    const front = world.groundAt(c.x + c.ux * 2, c.z + c.uz * 2), back = world.groundAt(c.x - c.ux * 2, c.z - c.uz * 2);
     const collider = chunk.addBoxCollider(c.x, c.z, c.ux, c.uz, 2.2, 0.95);
     items.push({ x: c.x, z: c.z, ux: c.ux, uz: c.uz, y: (front + back) / 2, rot: yawX(c.ux, c.uz), tilt: Math.atan2(front - back, 4),
       seed: c.seed, collider, taken: false });
@@ -256,10 +258,13 @@ export function buildParkedCars(world, chunk, spots, group) {
     const byType = new Map();
     for (const it of items) {
       it.type = carType(it.seed);
-      if (!byType.has(it.type)) byType.set(it.type, []);
-      byType.get(it.type).push(it);
+      Object.assign(it, fitParkedCar(it.type, it.x, it.z, it.rot, world));
+      const key = `${it.type}:${Math.floor(it.x / 96)}:${Math.floor(it.z / 96)}`;
+      if (!byType.has(key)) byType.set(key, []);
+      byType.get(key).push(it);
     }
-    for (const [type, list] of byType) {
+    for (const list of byType.values()) {
+      const type = list[0].type;
       const { geometry, material } = parkedCarMesh(type);
       const mesh = instanced(geometry, material, list);
       list.forEach((it, i) => { it.mesh = mesh; it.index = i; });

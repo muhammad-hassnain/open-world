@@ -180,7 +180,7 @@
   #profile label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
   #profile input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px 12px; border-radius: 10px;
     border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: var(--text); font: 15px system-ui; }
-  #profile-look { display: flex; gap: 8px; margin-bottom: 18px; }
+  #profile-look { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }
   #profile-look button { flex: 1; border: 0; border-radius: 10px; padding: 11px; background: rgba(255,255,255,0.1);
     color: var(--text); font: 600 14px system-ui; cursor: pointer; }
   #profile-look button.on { background: #fff; color: #22272e; }
@@ -261,6 +261,7 @@
     touch-action: none; -webkit-tap-highlight-color: transparent; }
   .tbtn:active { background: rgba(255,255,255,0.3); }
   #btn-jump { right: 22px; bottom: 58px; width: 74px; height: 74px; }
+  body.driving #btn-jump { font-size: 11px; }
   body.stick-right #btn-jump { right: auto; left: 22px; }
   #btn-boost { display: none; right: 108px; bottom: 40px; width: 62px; height: 62px; font-weight: 800; color: #6fd3ff; }
   body.driving #btn-boost { display: block; }
@@ -276,6 +277,8 @@
     touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   #btn-use { background: var(--accent) !important; color: #fff !important; box-shadow: none !important; }
   body.driving #btn-car, body.driving #btn-bike { display: none; }
+  #btn-horn, #btn-rear { display: none; }
+  body.driving #btn-horn, body.driving #btn-rear { display: block; }
   #drive-hint { position: absolute; left: 50%; bottom: 210px; transform: translateX(-50%); z-index: 6; opacity: 0;
     transition: opacity .15s; background: var(--panel); padding: 7px 14px; border-radius: 999px; font-size: 13px;
     pointer-events: none; white-space: nowrap; backdrop-filter: blur(6px); }
@@ -365,7 +368,7 @@
   <div id="stick"><div id="stick-knob"></div></div>
   <button id="btn-jump" class="tbtn">Jump</button>
   <button id="btn-boost" class="tbtn">N₂O</button>
-  <div id="vehicle-btns"><button id="btn-use" class="hidden">Get in</button><button id="btn-car">Car</button><button id="btn-bike">Bike</button></div>
+  <div id="vehicle-btns"><button id="btn-use" class="hidden">Get in</button><button id="btn-car">Car</button><button id="btn-bike">Bike</button><button id="btn-horn">Horn</button><button id="btn-rear">Rear view</button></div>
 </div>
 <div id="drive-hint" class="street-ui"></div>
 <div id="arcade" class="street-ui"><div class="sp"><small>SPEED POINTS</small><b id="sp-total">0</b></div>
@@ -389,7 +392,9 @@
       <span>Look</span><span>Mouse (or <kbd>Q</kbd> <kbd>E</kbd>)</span>
       <span>Labels</span><span><kbd>L</kbd> — tags, signs, or off</span>
       <span>Car / bike</span><span><kbd>V</kbd> / <kbd>B</kbd> — bring yours here</span>
-      <span>Get in / out</span><span><kbd>F</kbd> — also any parked car; drive with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>, <kbd>Space</kbd> brakes</span>
+      <span>Get in / out</span><span><kbd>F</kbd> — also any parked car; drive with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span>
+      <span>Car brakes</span><span><kbd>S</kbd> brakes, then reverses · <kbd>Space</kbd> rear handbrake. On touch, pull the stick back to brake/reverse.</span>
+      <span>Driving view / horn</span><span>Hold <kbd>C</kbd> to look behind · <kbd>H</kbd> horn · <kbd>N</kbd> sound on/off</span>
       <span>Photos</span><span><kbd>P</kbd> — photos of the place you're at</span>
       <span>Map</span><span><kbd>M</kbd> — pick a spot nearby</span>
       <span>Globe</span><span><kbd>G</kbd> — fly out and go anywhere</span>
@@ -414,7 +419,7 @@
     <h1>Who are you?</h1>
     <p>Pick a name and a character. You can change them later under About.</p>
     <label>Name<input id="profile-name" type="text" placeholder="Your name" autocomplete="nickname" spellcheck="false"></label>
-    <div id="profile-look"><button data-look="man">Man</button><button data-look="woman">Woman</button></div>
+    <div id="profile-look"><button data-look="man">Sam · casual</button><button data-look="woman">Maya · casual</button><button data-look="harper">Harper · tailored</button><button data-look="jordan">Jordan · tailored</button></div>
     <button id="profile-done" class="btn">Start walking</button>
   </div>
 </div>
@@ -440,14 +445,18 @@
       · Roof colors <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map" target="_blank" rel="noopener">USGS</a>
       · Photos <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia Commons</a> (credited with each photo)
       · Search <a href="https://nominatim.org" target="_blank" rel="noopener">Nominatim</a>
-      · Characters <a href="https://quaternius.com" target="_blank" rel="noopener">Quaternius</a>
+      · Textured characters <a href="https://www.innerscene.com/tools/library" target="_blank" rel="noopener">Innerscene</a> / <a href="https://www.makehumancommunity.org" target="_blank" rel="noopener">MakeHuman</a> (CC0)
+      · Foliage &amp; bark <a href="https://polyhaven.com" target="_blank" rel="noopener">Poly Haven</a> (CC0)
+      · Original characters <a href="https://quaternius.com" target="_blank" rel="noopener">Quaternius</a>
       · Cars <a href="https://kenney.nl" target="_blank" rel="noopener">Kenney</a>
+      · Smoke particles <a href="https://kenney.nl/assets/smoke-particles" target="_blank" rel="noopener">Kenney</a> (CC0)
       · Weather data by <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)
       · Multiplayer relay on <a href="https://workers.cloudflare.com" target="_blank" rel="noopener">Cloudflare Workers</a>
       · Textures <a href="https://polyhaven.com" target="_blank" rel="noopener">Poly Haven</a>,
       <a href="https://ambientcg.com" target="_blank" rel="noopener">ambientCG</a>
       · Code under the MIT License.
     </div>
+    <div id="render-quality" class="modes"><span>Graphics</span><button data-v="auto" title="Adjust resolution to aim for 40+ fps; keep detailed models and textures">Auto · smoother</button><button data-v="native" title="Full display resolution, which may run slower">Full resolution</button></div>
     <div id="time-mode" class="modes"><span>Time <kbd>T</kbd></span><button data-v="live">Live</button><button data-v="day">Day</button><button data-v="sunset">Sunset</button><button data-v="night">Night</button></div>
     <div id="units-mode" class="modes"><span>Speed <kbd>U</kbd></span><button data-v="auto">Local</button><button data-v="kmh">km/h</button><button data-v="mph">mph</button></div>
     <div id="weather-mode" class="modes"><span>Weather <kbd>Y</kbd></span><button data-v="live">Live</button><button data-v="clear">Clear</button><button data-v="rain">Rain</button><button data-v="snow">Snow</button><button data-v="fog">Fog</button></div>

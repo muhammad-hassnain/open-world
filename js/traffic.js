@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { nodeKey, signalState, slowLane, DECK_Y } from './world.js';
 import { deckY } from './bridges.js';
-import { CAR_TYPES, carsLoaded, parkedCarMesh, parkedCarLights } from './vehicles.js';
+import { CAR_TYPES, carsLoaded, parkedCarMesh, parkedCarLights, fitParkedCar } from './vehicles.js';
 import { clamp, damp, angleDelta, rng } from './util.js';
 import { speedLimit } from './limits.js';
 
@@ -28,6 +28,7 @@ export class Traffic {
     this.spawnT = 0;
     this.patrols = 2;          // police cars among the traffic (police.js turns this off in a chase)
     this.lightsOn = false;     // headlights at night (atmosphere.js)
+    this.onHorn = null;
     this.miles = false;        // limits in mph (US, UK); set by main.js
     this.lightMeshes = new Map();  // car type -> [head, tail] InstancedMeshes
     this.R = rng(12345);
@@ -140,10 +141,9 @@ export class Traffic {
       const ny = yaw + angleDelta(yaw, target) * (1 - Math.exp(-8 * this._dt));
       c.fx = Math.sin(ny); c.fz = Math.cos(ny);
     }
-    const ht = c.road.ez ? (x, z) => deckY(c.road, x, z) + DECK_Y : (x, z) => w.elevation(x, z);  // on its own road's deck
-    const hf = ht(c.x + c.fx * 1.6, c.z + c.fz * 1.6), hb = ht(c.x - c.fx * 1.6, c.z - c.fz * 1.6);
-    c.y = (hf + hb) / 2;
-    c.pitch = Math.atan2(hf - hb, 3.2);
+    const deck = c.road.ez ? deckY(c.road, c.x, c.z) + DECK_Y : null;
+    const fit = fitParkedCar(c.type, c.x, c.z, Math.atan2(-c.fz, c.fx), w, deck);
+    c.y = fit.y; c.pitch = fit.tilt; c.bank = fit.bank;
   }
 
   // Is this node a junction (more than one road meets), and the node's entries.
@@ -173,6 +173,7 @@ export class Traffic {
   _drive(c, dt, player) {
     this._dt = dt;
     let target = c.cruise;
+    let waitingLight = false;
     if (c.stun > 0) { c.stun -= dt; target = 0; }
 
     // Junction ahead: slow down to yield, or stop at a red light.
@@ -185,6 +186,7 @@ export class Traffic {
         const state = signalState(sig, axis, this.time);
         const stopAt = j.d - (sig.radius + 3);
         if (state === 'red' || (state === 'yellow' && stopAt > 6)) {
+          waitingLight = true;
           if (stopAt > -1) target = Math.min(target, Math.sqrt(2 * DECEL * 0.6 * Math.max(0, stopAt - 0.5)));
         }
       } else if (j.d < 14) {
@@ -195,9 +197,22 @@ export class Traffic {
     // Something ahead in our lane: keep the gap.
     const gap = this._gapAhead(c, player);
     if (gap < 30) target = Math.min(target, Math.max(0, (gap - 2.5) * 0.9));
+    // Begin braking farther out at highway speed; never advance through a stopped obstacle.
+    if (Number.isFinite(gap)) target = Math.min(target, Math.sqrt(2 * DECEL * Math.max(0, gap - 2)));
+    c.blockedT = !waitingLight && gap < 6 && c.speed < 1 ? (c.blockedT || 0) + dt : 0;
+    c.hornT = Math.max(0, (c.hornT || 0) - dt);
+    if (c.blockedT > 3 && c.hornT === 0 && c.type !== 'police') {
+      this.onHorn?.(c); c.hornT = 9 + this.R() * 5;
+    }
 
     c.speed = c.speed < target ? Math.min(target, c.speed + ACCEL * dt) : Math.max(target, c.speed - DECEL * dt);
-    c.s += c.speed * dt;
+    const seg = this._seg(c);
+    // The drawn car eases toward its route position. Reserve that outstanding movement too,
+    // otherwise the route can creep through an obstacle while the visible car catches up.
+    const lag = Math.max(0, c.s - ((c.x - seg.a[0]) * seg.tx + (c.z - seg.a[1]) * seg.tz));
+    const move = Math.min(c.speed * dt, Math.max(0, gap - 1 - lag));
+    if (move < c.speed * dt) c.speed = move / Math.max(dt, 1e-3);
+    c.s += move;
     // Past the end of the segment: next vertex, maybe a junction.
     for (let guard = 0; guard < 4 && c.s >= this._seg(c).len; guard++) {
       c.s -= this._seg(c).len;
@@ -245,17 +260,19 @@ export class Traffic {
   // Free distance ahead in our lane to the nearest car, player or parked vehicle.
   _gapAhead(c, player) {
     let best = Infinity;
-    const test = (x, z, len) => {
+    const test = (x, z, len, y = c.y) => {
       const rx = x - c.x, rz = z - c.z;
       const along = rx * c.fx + rz * c.fz, lat = Math.abs(rx * c.fz - rz * c.fx);
-      if (along > 0 && along < 35 && lat < 1.9) best = Math.min(best, along - len);
+      // Compare against the road's grade, so cars up the same hill still count.
+      if (Math.abs(y - c.y - along * Math.tan(c.pitch || 0)) > 2.5) return;
+      if (along > 0 && along < 90 && lat < 1.9) best = Math.min(best, along - len);
     };
-    for (const o of this.cars) if (o !== c) test(o.x, o.z, LENGTH);
+    for (const o of this.cars) if (o !== c) test(o.x, o.z, LENGTH, o.y);
     if (player) {
       const v = player.vehicle;
-      if (v) test(v.x, v.z, v.kind === 'car' ? LENGTH : 2.5); else test(player.pos.x, player.pos.z, 2.6);
+      if (v) test(v.x, v.z, v.kind === 'car' ? LENGTH : 2.5, v.y); else test(player.pos.x, player.pos.z, 2.6, player.pos.y);
     }
-    for (const ob of this.world.obstacles) if (ob !== this && ob.kind) test(ob.x, ob.z, ob.kind === 'car' ? LENGTH : 2.5);
+    for (const ob of this.world.obstacles) if (ob !== this && ob.kind) test(ob.x, ob.z, ob.kind === 'car' ? LENGTH : 2.5, ob.y);
     return best;
   }
 
@@ -289,7 +306,8 @@ export class Traffic {
         const c = list[i];
         // The parked-car geometry points along +X; yaw it onto (fx, fz) and pitch with the road.
         this._e.set(0, Math.atan2(-c.fz, c.fx), 0);
-        this._q.setFromEuler(this._e).multiply(new THREE.Quaternion().setFromAxisAngle(Z_AXIS, c.pitch));
+        this._q.setFromEuler(this._e).multiply(tiltQ.setFromAxisAngle(Z_AXIS, c.pitch))
+          .multiply(tiltQ.setFromAxisAngle(X_AXIS, -c.bank));
         this._m.compose(this._p.set(c.x, c.y, c.z), this._q, this._s);
         mesh.setMatrixAt(i, this._m);
       }
@@ -313,7 +331,7 @@ export class Traffic {
     }
   }
 }
-const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const X_AXIS = new THREE.Vector3(1, 0, 0), Z_AXIS = new THREE.Vector3(0, 0, 1), tiltQ = new THREE.Quaternion();
 
 // ---------- traffic lights ----------
 

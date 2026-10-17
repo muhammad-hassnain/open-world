@@ -31,7 +31,9 @@ export async function fetchAerial(z, x, y) {
     const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(bmp.width, bmp.height) : Object.assign(document.createElement('canvas'), { width: bmp.width, height: bmp.height });
     const ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(bmp, 0, 0);
-    return { w: bmp.width, h: bmp.height, data: ctx.getImageData(0, 0, bmp.width, bmp.height).data };
+    const result = { w: bmp.width, h: bmp.height, data: ctx.getImageData(0, 0, bmp.width, bmp.height).data };
+    bmp.close();
+    return result;
   } catch {
     return null;
   } finally {

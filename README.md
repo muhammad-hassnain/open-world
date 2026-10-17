@@ -20,7 +20,7 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - **The whole world.** A 3D globe with place search; zoom in to any street and press
   **Walk here**. Press `G` to fly back out. The world streams in around you as you walk.
   If you share your location, you start on the street where you are.
-- **Third-person character**: pick a name and a man or woman in a suit, with walk, run, sprint
+- **Third-person character**: pick a name and one of four textured characters, with walk, jog, run, sprint
   and jump animations, an over-the-shoulder camera
   that avoids walls, and collision with buildings, trees, lamps and parked cars.
 - **Real terrain**: streets, buildings and parks follow the ground, so San Francisco's hills
@@ -46,6 +46,19 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Traffic**: about 20 cars drive the streets around you, keep their distance, slow down at
   junctions and stop at traffic lights, which cycle where OpenStreetMap maps them (or where
   main roads cross).
+- **Driving effects**: hard braking leaves fading tire tracks and smoke on roads, including
+  hills and bridge decks. Headlights, street lamps and flashing police lights have soft halos
+  that disappear behind buildings. Rain kicks up tire spray, unpaved ground raises dust, and
+  impacts throw small sparks. Effects use fixed pools with lower limits on mobile.
+- **Car physics**: four tire contacts share grip between braking and cornering; mass, rotational
+  inertia, spring/damper suspension and weight transfer produce understeer and oversteer.
+  Cars have different front, rear or all-wheel drive, five automatic gears, engine braking,
+  drag, and rolling resistance. Hills, rain, snow, dirt and damaged tires change handling.
+  The rear handbrake can spin the car; recovery requires easing off or countersteering.
+- **Driving feel and sound**: the camera looks slightly ahead, and holding `C` looks behind.
+  Engine pitch follows the drivetrain's RPM and tire squeal follows lost grip. Synthesized tire,
+  impact, horn (`H`), footstep and rain sounds share the `N` sound toggle. Traffic brakes earlier
+  for stopped cars and occasionally honks when blocked, without honking at red lights.
 - **Real time and weather**: the sun is where it really is at that place and time (sunsets,
   starry nights with lit windows, street lamps and headlights), and the weather is live from
   Open-Meteo: clouds, rain on wet streets, snow, fog and thunderstorms. `T` and `Y` (or About)
@@ -56,7 +69,18 @@ detail everywhere. See [docs/ROADMAP.md](docs/ROADMAP.md).
   cooldown fills and you escape. Sirens are made in the browser; `N` mutes them.
 - **Other players**: everyone online nearby shows up with their name and character, live. You
   start hidden if you began at your own location; `O` (or the Online button) shows or hides you.
-- **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars.
+- **Street life**: trees, street lamps, benches, bike racks, hydrants and parked cars, plus a
+  small local population of strollers, commuters, walkers and joggers on verified sidewalks
+  and paths (up to eight, four on mobile). Four character bases have varied clothing colors,
+  proportions, walking speeds and independent animations. Walkers continue around corners,
+  keep personal space and react to nearby cars. Nearby water has wind-driven moving reflections.
+- **Textured trees**: branching trunks with photographic bark and cutout leaves/needles,
+  six broadleaf, columnar and conifer shapes, and wind-driven foliage with matching shadows.
+  Distant trees use simpler meshes; phones use a smaller detail radius.
+- **Adaptive graphics**: automatic resolution aims for 40+ fps while keeping detailed models,
+  textures and shadows. The interface stays sharp. Choose Auto or Full resolution in About;
+  actual performance depends on the device and location. Compact scenery buffers, shared
+  textures and bounded terrain caches reduce memory use.
 - **Real places in any language**: shop, restaurant and building names as floating tags or
   physical signs (`L` switches), an info card when you walk up to a place, and a live
   "where am I" bar with the street, cross street and neighborhood.
@@ -102,6 +126,7 @@ the address bar keeps your current position so you can share it.
 | Your car / your bike (`V` again: another car model) | `V` / `B` |
 | Get in or out (also any parked or passing car) | `F` |
 | Drive / brake | `W` `A` `S` `D` / `Space` |
+| Look behind / horn | Hold `C` / `H` |
 | Sound on / off | `N` |
 | Time of day: live / day / sunset / night | `T` |
 | Weather: live / clear / rain / snow / fog | `Y` |
@@ -138,6 +163,8 @@ the data formats.
 ```
 index.html              Page, HUD and globe UI, styles, script/import map
 js/main.js              Boot, screens (globe/loading/street), input, HUD, game loop, spawning
+js/rendering.js         Adaptive graphics resolution and lighting work reduction
+js/geometry.js          Compact static scenery through exact shared-vertex indexing
 js/globe.js             MapLibre globe, place search and reverse geocoding (Nominatim)
 js/materials.js         Shared textured materials (CC0 textures in assets/textures)
 js/aerial.js            Roof colors sampled from USGS aerial imagery (US only)
@@ -152,15 +179,21 @@ js/world.js             Chunk indexes and world queries: collision, curbs, stree
 js/streets.js           Ground, areas, roads, markings, crosswalks, sidewalks, furniture spots
 js/buildings.js         Building styles, heights, facades, roofs
 js/props.js             Trees, lamps, benches, bike racks, hydrants, parked cars (instanced)
+js/trees.js             Shared textured tree geometry, wind and distance detail
 js/labels.js            Place labels: floating tags, 3D signs, street signs, info-card lookup
 js/photos.js            Photos of places from Wikimedia Commons (matched through Wikidata)
 js/minimap.js           Rotating minimap from per-chunk canvases
 js/character.js         The player's character (3D models with animations) and its fallback figure
 js/profile.js           The player's name and character, kept on the device
-js/vehicles.js          Cars (CC0 models) and bikes: arcade driving, collisions, the rider
+js/vehicles.js          Car/bike models, terrain contacts, collision impulses, the rider
+js/carphysics.js        Tire forces, suspension, drivetrain, weight transfer and surface grip
 js/traffic.js           Traffic cars following the streets, and traffic lights
 js/police.js            Police: crimes, wanted level, chases, roadblocks, busted/escaped, siren
 js/atmosphere.js        Sun position, sky, clouds, live weather (Open-Meteo), rain/snow, night lights
+js/drivingfx.js         Terrain-following tire tracks, smoke and batched light halos
+js/soundscape.js        Synthesized engine, tire, impact, horn, footstep and rain audio
+js/pedestrians.js       Bounded local walkers on verified sidewalks and footpaths
+js/people.js            Deterministic pedestrian appearance and behavior factory
 js/limits.js            Speed limits by road class (mph in the US and UK, km/h elsewhere)
 js/multiplayer.js       Other players: connection to the relay, their characters and name tags
 js/player.js            Movement, collision response, third-person camera
@@ -168,8 +201,10 @@ js/touch.js             Touch controls: fixed joystick with sprint lock, look, p
 js/util.js              Geometry helpers, spatial hash, mesh builder, time slicing
 data/detail/            Pre-built detailed tiles (downtown Davis)
 assets/textures/        CC0 material textures (see CREDITS.md there)
-assets/characters/      CC0 character models (see CREDITS.md there)
+assets/characters/      CC0 textured character models and lighter population meshes
+assets/nature/          CC0 bark and foliage textures (see CREDITS.md there)
 assets/vehicles/        CC0 car models (see CREDITS.md there)
+assets/effects/         CC0 smoke texture (see CREDITS.md there)
 assets/icons/           App icons (tab, home screen); favicon.ico and site.webmanifest sit at the root
 serve.py                Static file server (Python standard library only)
 relay/                  Multiplayer relay (Cloudflare Worker + Durable Objects), deployed separately
@@ -211,9 +246,13 @@ Detailed tiles come from `tools/build_detail.py`. Add the tile (zoom 14 x/y) to
   [OpenMapTiles](https://openmaptiles.org) schema. Search by [Nominatim](https://nominatim.org).
   The in-game credit lines must stay visible.
 - Material textures from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com),
-  CC0 ([list](assets/textures/CREDITS.md)). Characters by [Quaternius](https://quaternius.com),
-  CC0 ([list](assets/characters/CREDITS.md)). Cars by [Kenney](https://kenney.nl), CC0
-  ([list](assets/vehicles/CREDITS.md)). Roof colors from USGS/USDA orthoimagery
+  CC0 ([list](assets/textures/CREDITS.md)); tree textures also by Poly Haven
+  ([credits](assets/nature/CREDITS.md)). Textured characters by
+  [Innerscene](https://www.innerscene.com/tools/library), using MakeHuman CC0 assets;
+  original low-poly characters by [Quaternius](https://quaternius.com)
+  ([character credits](assets/characters/CREDITS.md)). Cars by [Kenney](https://kenney.nl), CC0
+  ([list](assets/vehicles/CREDITS.md)), and smoke particles by Kenney, CC0
+  ([credits](assets/effects/CREDITS.md)). Roof colors from USGS/USDA orthoimagery
   ([The National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map)), public domain.
 - Elevation from [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS (Mapzen;
   USGS 3DEP, SRTM, GMTED2010, ETOPO1, EU-DEM and national datasets); the full required

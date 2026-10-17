@@ -398,8 +398,12 @@ export class GeoBuilder {
   build() {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
+    // Normalized integers are decoded by WebGL. 16-bit precision preserves smooth
+    // lighting and dark linear-space colors while halving these two buffers.
+    g.setAttribute('normal', new THREE.BufferAttribute(Int16Array.from(this.n, v => Math.round(clamp(v, -1, 1) * 32767)), 3, true));
+    g.setAttribute('color', this.c.some(v => v < 0 || v > 1)
+      ? new THREE.Float32BufferAttribute(this.c, 3)
+      : new THREE.BufferAttribute(Uint16Array.from(this.c, v => Math.round(v * 65535)), 3, true));
     if (this.uvOn) g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.computeBoundingSphere();
     return g;
